@@ -1314,7 +1314,7 @@ export const buildLocalPricingPreview = (cartItems = []) => {
                         const discountTotal = Number(participant?.base_total || 0);
                         const discounted = {
                             ...participant,
-                            discount_total,
+                            discount_total: discountTotal,
                         };
                         rewardParticipants.push(discounted);
                         participants.push(discounted);
