@@ -993,6 +993,7 @@ class ProductController extends Controller
                 'can_manage_tenant_sell_price' => $canManageTenantSellPrice,
                 'can_manage_outlet_stock' => $canManageOutletStock,
                 'can_manage_product_image' => $canManageProductImage,
+                'can_manage_publication' => $this->canManagePublicationFields($request),
             ],
         ]);
     }
@@ -1198,6 +1199,8 @@ class ProductController extends Controller
             return $this->rejectStockOnlyUpdate();
         }
 
+        $canManagePublicationFields = $this->canManagePublicationFields($request);
+
         $before = $this->productAuditPayload($product);
 
         /**
@@ -1342,10 +1345,18 @@ class ProductController extends Controller
             'buy_price' => $validated['buy_price'],
             'sell_price' => $validated['sell_price'],
             'tenant_discount_price' => $tenantDiscountPrice,
-            'is_featured' => (bool) ($validated['is_featured'] ?? false),
-            'shadow_banned_at' => $validated['shadow_banned_at'] ?? null,
-            'shadow_ban_reason' => $validated['shadow_ban_reason'] ?? null,
-            'penalty_status' => $validated['penalty_status'] ?? null,
+            'is_featured' => $canManagePublicationFields
+                ? (bool) ($validated['is_featured'] ?? false)
+                : (bool) ($product->is_featured ?? false),
+            'shadow_banned_at' => $canManagePublicationFields
+                ? ($validated['shadow_banned_at'] ?? null)
+                : $product->shadow_banned_at,
+            'shadow_ban_reason' => $canManagePublicationFields
+                ? ($validated['shadow_ban_reason'] ?? null)
+                : $product->shadow_ban_reason,
+            'penalty_status' => $canManagePublicationFields
+                ? ($validated['penalty_status'] ?? null)
+                : $product->penalty_status,
         ];
 
         // check image update
@@ -2268,6 +2279,31 @@ class ProductController extends Controller
         return $this->canManageTenantCatalog($request, $product, $activeOutletId)
             || $this->canManageTenantBasicFields($request, $product, $activeOutletId)
             || $this->canManageTenantSellPrice($request, $product, $activeOutletId);
+    }
+
+    /**
+     * Hanya owner main outlet (atau admin sistem/super admin) yang boleh mengubah
+     * field publikasi: featured, shadow ban, dan status penalty.
+     */
+    private function canManagePublicationFields(Request $request): bool
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->isSuperAdmin() || $user->hasRole('admin-sistem')) {
+            return true;
+        }
+
+        if (! $user->hasRole(['admin-owner-outlet', 'outlet-owner'])) {
+            return false;
+        }
+
+        $activeOutlet = $this->outletResolver->resolve($request, $user);
+
+        return $activeOutlet?->outlet_type === 'main';
     }
 
     private function canManageTenantCatalog(Request $request, Product $product, ?int $activeOutletId): bool

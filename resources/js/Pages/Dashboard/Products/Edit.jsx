@@ -237,10 +237,13 @@ export default function Edit({
 }) {
     const { errors, auth, activeOutlet } = usePage().props;
     const { isSuperAdmin } = useAuthorization();
-    const canViewPenaltyInfo = isSuperAdmin() ||
-        auth.roleNames?.includes('admin-sistem') ||
-        (activeOutlet?.outlet_type === 'main' &&
-         ['admin-owner-outlet', 'outlet-owner'].some(role => auth.roleNames?.includes(role)));
+    const canViewPenaltyInfo =
+        capabilities?.can_manage_publication === true ||
+        (capabilities?.can_manage_publication === undefined &&
+            (isSuperAdmin() ||
+                auth.roleNames?.includes('admin-sistem') ||
+                (activeOutlet?.outlet_type === 'main' &&
+                 ['admin-owner-outlet', 'outlet-owner'].some(role => auth.roleNames?.includes(role)))));
     const isTenantWorkspace = workspace?.is_tenant === true;
     const canManageCatalog = capabilities?.can_manage_catalog === true;
     const canManagePricing = capabilities?.can_manage_pricing === true;
@@ -2027,34 +2030,34 @@ export default function Edit({
                             </div>
                         )}
 
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-2">
-                                        <IconStar size={18} />
-                                        Status Publik & Review
-                                    </h3>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                        Kelola featured, shadow ban, dan status penalty untuk publikasi menu.
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-                                <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                        {canViewPenaltyInfo && (
+                            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                     <div>
-                                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Featured</p>
-                                        <p className="text-[11px] text-slate-500">Tampilkan di bagian atas daftar menu.</p>
+                                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-2">
+                                            <IconStar size={18} />
+                                            Status Publik & Review
+                                        </h3>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                            Kelola featured, shadow ban, dan status penalty untuk publikasi menu.
+                                        </p>
                                     </div>
-                                    <input
-                                        type="checkbox"
-                                        checked={!!data.is_featured}
-                                        onChange={(e) => setData("is_featured", e.target.checked)}
-                                        className="h-5 w-5 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
-                                    />
-                                </label>
+                                </div>
 
-                                {canViewPenaltyInfo && (
+                                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                                    <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                                        <div>
+                                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Featured</p>
+                                            <p className="text-[11px] text-slate-500">Tampilkan di bagian atas daftar menu.</p>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={!!data.is_featured}
+                                            onChange={(e) => setData("is_featured", e.target.checked)}
+                                            className="h-5 w-5 rounded border-slate-300 text-primary-500 focus:ring-primary-500"
+                                        />
+                                    </label>
+
                                     <div className="md:col-span-2">
                                         <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
                                             Shadow Ban Reason
@@ -2067,10 +2070,8 @@ export default function Edit({
                                             className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                                         />
                                     </div>
-                                )}
-                            </div>
+                                </div>
 
-                            {canViewPenaltyInfo && (
                                 <div className="mt-4">
                                     <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
                                         Penalty Status
@@ -2086,8 +2087,8 @@ export default function Edit({
                                         <option value="rejected">Rejected (keep banned)</option>
                                     </select>
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
 
                         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
