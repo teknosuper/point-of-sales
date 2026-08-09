@@ -75,10 +75,6 @@ export default function ModifierOptionsModal({
     onSubmit,
     isSubmitting = false,
 }) {
-    if (!product) {
-        return null;
-    }
-
     const applicableModifierOptions = (product?.modifier_options || []).filter(
         (option) => {
             const scope = String(option?.order_type_scope || "").trim();
@@ -231,6 +227,10 @@ export default function ModifierOptionsModal({
             return () => window.clearTimeout(timer);
         }
     }, [step]);
+
+    if (!product) {
+        return null;
+    }
 
     const handleNextToNotes = () => {
         // Validasi topping wajib sebelum lanjut ke keterangan

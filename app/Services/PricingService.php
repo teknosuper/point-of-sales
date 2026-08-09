@@ -289,16 +289,16 @@ class PricingService
     public function ruleLabel(PricingRule $rule, ?array $activeBreak = null): string
     {
         if ($rule->kind === PricingRule::KIND_QTY_BREAK && $activeBreak) {
-            return 'Grosir '.$this->standardDiscountLabelForValues(
+            return 'Beli Banyak '.$this->standardDiscountLabelForValues(
                 (string) ($activeBreak['discount_type'] ?? $rule->discount_type),
                 (float) ($activeBreak['discount_value'] ?? 0)
             );
         }
 
         return match ($rule->kind) {
-            PricingRule::KIND_QTY_BREAK => 'Grosir '.$this->standardDiscountLabel($rule),
-            PricingRule::KIND_BUNDLE_PRICE => 'Bundle Rp '.number_format((float) $rule->discount_value, 0, ',', '.'),
-            PricingRule::KIND_BUY_X_GET_Y => 'Buy X Get Y',
+            PricingRule::KIND_QTY_BREAK => 'Beli Banyak '.$this->standardDiscountLabel($rule),
+            PricingRule::KIND_BUNDLE_PRICE => 'Paket Rp '.number_format((float) $rule->discount_value, 0, ',', '.'),
+            PricingRule::KIND_BUY_X_GET_Y => 'Beli X Gratis Y',
             default => $this->standardDiscountLabel($rule),
         };
     }
@@ -1165,9 +1165,9 @@ class PricingService
     private function kindLabel(string $kind): string
     {
         return match ($kind) {
-            PricingRule::KIND_QTY_BREAK => 'Belanja Lebih Untung',
+            PricingRule::KIND_QTY_BREAK => 'Beli Banyak, Lebih Hemat',
             PricingRule::KIND_BUNDLE_PRICE => 'Paket Hemat',
-            PricingRule::KIND_BUY_X_GET_Y => 'Promo Buy Get',
+            PricingRule::KIND_BUY_X_GET_Y => 'Beli X Gratis Y',
             default => 'Harga Spesial',
         };
     }
@@ -1323,7 +1323,7 @@ class PricingService
             ->values();
 
         if ($buyItems->isEmpty() || $getItems->isEmpty()) {
-            return 'Buy one get one / buy x get y.';
+            return 'Beli X, gratis Y.';
         }
 
         return 'Beli '.implode(' + ', $buyItems->all()).', gratis '.implode(' + ', $getItems->all()).'.';

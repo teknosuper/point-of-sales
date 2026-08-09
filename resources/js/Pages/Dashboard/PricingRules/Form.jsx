@@ -46,6 +46,332 @@ const dayOptions = [
 const basisLabel = (basis) =>
     basis === "buy_price" ? "Harga Beli Tenant" : "Harga Jual Owner";
 
+// ----- Bantuan format tanggal & jam Indonesia (dd/mm/yyyy, 24 jam) -----
+const pad = (number) => String(number).padStart(2, "0");
+
+// Konversi nilai ISO (YYYY-MM-DDTHH:MM) dari server ke tanggal lokal (bukan UTC).
+const toLocalDateTimeValue = (isoValue) => {
+    if (!isoValue) {
+        return "";
+    }
+
+    try {
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(isoValue))) {
+            return String(isoValue).slice(0, 16);
+        }
+
+        const date = new Date(isoValue);
+        if (Number.isNaN(date.getTime())) {
+            return "";
+        }
+
+        const localDate = new Date(
+            date.getTime() - date.getTimezoneOffset() * 60000
+        );
+
+        return localDate.toISOString().slice(0, 16);
+    } catch {
+        return "";
+    }
+};
+
+// "2026-08-09T14:30" -> "09/08/2026 14:30"
+const toDisplayDateTime = (datetimeValue) => {
+    const value = toLocalDateTimeValue(datetimeValue);
+
+    if (!value) {
+        return "";
+    }
+
+    const [datePart, timePart] = value.split("T");
+    const [year, month, day] = String(datePart || "").split("-");
+
+    return `${day}/${month}/${year}${timePart ? ` ${timePart}` : ""}`;
+};
+
+// "09/08/2026 14:30" -> "2026-08-09T14:30" (kembalikan current bila belum lengkap)
+const toDateTimeValue = (displayValue, currentValue = "") => {
+    const trimmed = String(displayValue || "").trim();
+
+    if (!trimmed) {
+        return "";
+    }
+
+    const match = trimmed.match(
+        /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?$/
+    );
+
+    if (!match) {
+        return currentValue;
+    }
+
+    const [, day, month, year, hour, minute] = match;
+    const timePart = hour && minute ? `T${pad(hour)}:${pad(minute)}` : "";
+
+    return `${String(year).padStart(4, "0")}-${pad(month)}-${pad(day)}${timePart}`;
+};
+
+// Sisipkan ":" saat user mengetik "1430" menjadi "14:30", biarkan "14:" utuh.
+const formatTimeInput = (raw) => {
+    const digits = String(raw || "").replace(/\D/g, "").slice(0, 4);
+    if (digits.length <= 2) {
+        return digits;
+    }
+
+    return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+};
+
+// Auto-format saat blur: pastikan selalu HH:MM (bila input berupa angka polos).
+const normalizeTimeInput = (raw) => {
+    const trimmed = String(raw || "").trim();
+    if (!trimmed) {
+        return "";
+    }
+
+    const match = trimmed.match(/^(\d{1,2}):(\d{1,2})$/);
+    if (match) {
+        return `${pad(match[1])}:${pad(match[2])}`;
+    }
+
+    const digits = `${trimmed.replace(/\D/g, "")}`.slice(0, 4);
+    if (digits.length === 4) {
+        return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+    }
+
+    if (digits.length === 3) {
+        return `0${digits[0]}:${digits.slice(1)}`;
+    }
+
+    if (digits.length === 2) {
+        return `${digits}:00`;
+    }
+
+    return trimmed;
+};
+
+function TimePickerField({ value, onChange, allowEmpty = true, className = "" }) {
+    const valueString = String(value || "");
+    const hasValue = valueString.includes(":");
+    const hour = hasValue ? Number(valueString.split(":")[0]) : "";
+    const minute = hasValue ? Number(valueString.split(":")[1]) : "";
+
+    const selectStyle =
+        "h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm tabular-nums dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200";
+
+    const rebuild = (nextHour, nextMinute) => {
+        const h = Number(nextHour ?? hour);
+        const m = Number(nextMinute ?? minute);
+
+        if ((!nextHour || !nextMinute) && h === 0 && m === 0) {
+            onChange("");
+            return;
+        }
+
+        onChange(`${pad(h)}:${pad(m)}`);
+    };
+
+    return (
+        <div className={`flex items-center gap-2 ${className}`}>
+            <select
+                value={hasValue ? String(hour) : ""}
+                onChange={(event) =>
+                    rebuild(event.target.value, minute)
+                }
+                title="Jam"
+                className={`${selectStyle} w-20 text-center`}
+            >
+                <option value="">Jam</option>
+                {Array.from({ length: 24 }, (_, index) => index).map((h) => (
+                    <option key={h} value={String(h)}>
+                        {pad(h)}
+                    </option>
+                ))}
+            </select>
+            <span className="text-slate-400">:</span>
+            <select
+                value={hasValue ? String(minute) : ""}
+                onChange={(event) =>
+                    rebuild(hour === "" ? null : String(hour), event.target.value)
+                }
+                title="Menit"
+                className={`${selectStyle} w-20 text-center`}
+            >
+                <option value="">Menit</option>
+                {Array.from({ length: 60 }, (_, index) => index).map((m) => (
+                    <option key={m} value={String(m)}>
+                        {pad(m)}
+                    </option>
+                ))}
+            </select>
+        </div>
+    );
+}
+
+const TimeFormatHint = () => (
+    <p className="mt-1 text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+        Pilih jam & menit (format 24 jam, tanpa AM/PM). Contoh:{" "}
+        <span className="font-semibold text-slate-500 dark:text-slate-400">09:00</span> = jam 9 pagi,{" "}
+        <span className="font-semibold text-slate-500 dark:text-slate-400">21:30</span> = jam 9 malam lebih 30 menit.
+    </p>
+);
+
+const MONTH_NAMES_ID = [
+    "Januari",
+    "Februari",
+    "Maret",
+    "April",
+    "Mei",
+    "Juni",
+    "Juli",
+    "Agustus",
+    "September",
+    "Oktober",
+    "November",
+    "Desember",
+];
+
+function DatePickerField({
+    value,
+    onChange,
+    allowEmpty = true,
+    className = "",
+}) {
+    const datePart = String(value || "").slice(0, 10) || "";
+    const [selectedYear, selectedMonth, selectedDay] = datePart
+        ? datePart.split("-").map((part) => Number(part || 0))
+        : [0, 0, 0];
+    const currentYear = new Date().getFullYear();
+    const startYear = currentYear - 2;
+
+    const rebuild = (year, month, day) => {
+        const nextYear = year || currentYear;
+        const nextMonth = month || 1;
+        const maxDay = new Date(nextYear, nextMonth, 0).getDate();
+        const nextDay = Math.min(Math.max(day || 1, 1), maxDay);
+
+        onChange(
+            `${nextYear}-${pad(nextMonth)}-${pad(nextDay)}`
+        );
+    };
+
+    const selectStyle =
+        "h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm tabular-nums dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200";
+
+    return (
+        <div className={`flex flex-wrap items-center gap-2 ${className}`}>
+            <select
+                value={selectedDay || 0}
+                onChange={(event) =>
+                    rebuild(
+                        selectedYear,
+                        selectedMonth,
+                        Number(event.target.value)
+                    )
+                }
+                className={`${selectStyle} w-16 text-center`}
+            >
+                {allowEmpty && <option value={0}>Hari</option>}
+                {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                    <option key={day} value={day}>
+                        {day}
+                    </option>
+                ))}
+            </select>
+            <select
+                value={selectedMonth || 0}
+                onChange={(event) =>
+                    rebuild(
+                        selectedYear,
+                        Number(event.target.value),
+                        selectedDay
+                    )
+                }
+                className={`${selectStyle} flex-1`}
+            >
+                {allowEmpty && <option value={0}>Bulan</option>}
+                {MONTH_NAMES_ID.map((monthName, index) => (
+                    <option key={monthName} value={index + 1}>
+                        {monthName}
+                    </option>
+                ))}
+            </select>
+            <select
+                value={selectedYear || 0}
+                onChange={(event) =>
+                    rebuild(
+                        Number(event.target.value),
+                        selectedMonth,
+                        selectedDay
+                    )
+                }
+                className={`${selectStyle} w-24 text-center`}
+            >
+                {allowEmpty && <option value={0}>Tahun</option>}
+                {Array.from({ length: 17 }, (_, index) => startYear + index).map(
+                    (year) => (
+                        <option key={year} value={year}>
+                            {year}
+                        </option>
+                    )
+                )}
+            </select>
+        </div>
+    );
+}
+
+function DateTimeField({
+    value,
+    onChange,
+    className = "",
+}) {
+    const local = toLocalDateTimeValue(value);
+    const datePart = local ? local.split("T")[0] : "";
+    const timeValue = local ? local.split("T")[1] || "" : "";
+
+    return (
+        <div className={`space-y-2 ${className}`}>
+            <DatePickerField
+                value={datePart}
+                onChange={(nextDate) => {
+                    onChange(
+                        nextDate
+                            ? `${nextDate}${timeValue ? `T${timeValue}` : ""}`
+                            : ""
+                    );
+                }}
+                allowEmpty
+            />
+            <div className="flex items-start gap-3">
+                <span className="pt-3 shrink-0 text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Jam (24 jam)
+                </span>
+<div className="flex-1">
+                    <TimePickerField
+                        value={timeValue}
+                        onChange={(nextTime) => {
+                            if (!datePart) {
+                                onChange(
+                                    nextTime
+                                        ? `1970-01-01T${nextTime}`
+                                        : ""
+                                );
+                                return;
+                            }
+
+                            onChange(
+                                nextTime
+                                    ? `${datePart}T${nextTime}`
+                                    : datePart
+                            );
+                        }}
+                    />
+                </div>
+            </div>
+            <TimeFormatHint />
+        </div>
+    );
+}
+
 function InputError({ message }) {
     if (!message) return null;
     return <p className="mt-1 text-xs text-rose-500">{message}</p>;
@@ -69,6 +395,10 @@ const firstErrorByPrefix = (errors, prefix) =>
 const buildRulePayload = (data) => {
     const payload = {
         ...data,
+        starts_at: data.starts_at
+            ? data.starts_at.replace("T", " ") + ":00"
+            : "",
+        ends_at: data.ends_at ? data.ends_at.replace("T", " ") + ":00" : "",
         qty_breaks: [],
         bundle_items: [],
         buy_get_items: [],
@@ -126,6 +456,19 @@ export default function Form({
     const isEdit = mode === "edit";
     const forcedPriceBasis = pricingContext?.forced_price_basis || null;
     const [showInfoModal, setShowInfoModal] = useState(false);
+
+    // Preset tanggal/jam default saat create: waktu sekarang (24 jam, lokal).
+    const nowPreset = (() => {
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = pad(now.getMonth() + 1);
+        const dd = pad(now.getDate());
+        const hh = pad(now.getHours());
+        const min = pad(now.getMinutes());
+
+        return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+    })();
+
     const { data, setData, post, put, processing, errors, transform } = useForm({
         name: rule?.name ?? "",
         kind: rule?.kind ?? "standard_discount",
@@ -144,15 +487,17 @@ export default function Form({
         price_basis:
             rule?.price_basis ?? forcedPriceBasis ?? "sell_price",
         preview_quantity_multiplier: String(rule?.preview_quantity_multiplier ?? 1),
-        starts_at: rule?.starts_at
-            ? new Date(rule.starts_at).toISOString().slice(0, 16)
+        starts_at: mode === "edit"
+            ? toLocalDateTimeValue(rule?.starts_at)
+            : nowPreset,
+        ends_at: mode === "edit"
+            ? toLocalDateTimeValue(rule?.ends_at)
             : "",
-        ends_at: rule?.ends_at
-            ? new Date(rule.ends_at).toISOString().slice(0, 16)
-            : "",
-        active_days: rule?.active_days ?? [],
-        daily_start_time: rule?.daily_start_time ?? "",
-        daily_end_time: rule?.daily_end_time ?? "",
+        active_days: mode === "edit"
+            ? (rule?.active_days ?? [])
+            : dayOptions.map((day) => day.value),
+        daily_start_time: mode === "edit" ? (rule?.daily_start_time ?? "") : "00:00",
+        daily_end_time: mode === "edit" ? (rule?.daily_end_time ?? "") : "23:59",
         notes: rule?.notes ?? "",
         qty_breaks: rule?.qty_breaks?.length
             ? rule.qty_breaks.map((item) => ({
@@ -247,6 +592,55 @@ export default function Form({
 
     const runPreview = async () => {
         setPreviewState({ loading: true, data: null });
+
+        const missingErrors = [];
+        const missingTarget =
+            data.target_type === "product"
+                ? !data.product_id
+                : data.target_type === "category"
+                  ? !data.category_id
+                  : false;
+        if (missingTarget) {
+            missingErrors.push(
+                data.target_type === "product"
+                    ? "Pilih produk sasaran promo dulu sebelum preview."
+                    : "Pilih kategori sasaran promo dulu sebelum preview."
+            );
+        }
+
+        if (
+            (data.kind === "standard_discount" || data.kind === "bundle_price") &&
+            (data.discount_value === "" || Number(data.discount_value) <= 0)
+        ) {
+            missingErrors.push("Isi nilai diskon/harga promo dulu sebelum preview.");
+        }
+
+        if (data.kind === "qty_break" && (!data.qty_breaks || data.qty_breaks.length === 0)) {
+            missingErrors.push("Qty break masih kosong. Tambahkan baris harga grosir dulu.");
+        }
+
+        if (
+            data.kind === "bundle_price" &&
+            data.bundle_items.filter((item) => Number(item.product_id || 0) > 0).length < 2
+        ) {
+            missingErrors.push("Pilih minimal 2 produk untuk paket bundle dulu.");
+        }
+
+        if (data.kind === "buy_x_get_y") {
+            const hasBuy = data.buy_get_items.some((item) => item.role === "buy" && Number(item.product_id || 0) > 0);
+            const hasGet = data.buy_get_items.some((item) => item.role === "get" && Number(item.product_id || 0) > 0);
+            if (!hasBuy || !hasGet) {
+                missingErrors.push(
+                    "Lengkapi item Beli dan item Gratis (Beli X Gratis Y) dulu sebelum preview."
+                );
+            }
+        }
+
+        if (missingErrors.length > 0) {
+            setPreviewState({ loading: false, data: null });
+            toast.error(missingErrors[0]);
+            return;
+        }
 
         try {
             const response = await axios.post(
@@ -561,22 +955,21 @@ export default function Form({
                         </div>
                     </CardSection>
 
-                    <CardSection
+<CardSection
                         title="Jadwal Promo"
-                        description="Rule bisa dibatasi ke rentang tanggal tertentu, hari tertentu, dan jam operasional tertentu."
+                        description="Atur kapan promo aktif: rentang tanggal, hari, dan jam operasional. Semua waktu memakai format 24 jam (mis. 07:00 atau 21:30). Kosongkan bila promo langsung aktif tanpa batas."
                     >
                         <div className="grid gap-4 md:grid-cols-2">
                             <div>
                                 <FieldLabel hint="Kosongkan jika promo boleh langsung aktif tanpa batas tanggal mulai.">
                                     Mulai Aktif
                                 </FieldLabel>
-                                <input
-                                    type="datetime-local"
+                                <DateTimeField
                                     value={data.starts_at}
-                                    onChange={(event) =>
-                                        setData("starts_at", event.target.value)
+                                    onChange={(value) =>
+                                        setData("starts_at", value)
                                     }
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    placeholder="dd/mm/yyyy hh:mm"
                                 />
                                 <InputError message={errors.starts_at} />
                             </div>
@@ -584,13 +977,12 @@ export default function Form({
                                 <FieldLabel hint="Kosongkan jika promo tidak punya tanggal berakhir.">
                                     Selesai Aktif
                                 </FieldLabel>
-                                <input
-                                    type="datetime-local"
+                                <DateTimeField
                                     value={data.ends_at}
-                                    onChange={(event) =>
-                                        setData("ends_at", event.target.value)
+                                    onChange={(value) =>
+                                        setData("ends_at", value)
                                     }
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                    placeholder="dd/mm/yyyy hh:mm"
                                 />
                                 <InputError message={errors.ends_at} />
                             </div>
@@ -628,33 +1020,58 @@ export default function Form({
                                 <InputError message={errors.active_days} />
                             </div>
                             <div>
-                                <FieldLabel hint="Isi jika promo hanya aktif mulai jam tertentu, misalnya promo sarapan atau happy hour.">
+                                <FieldLabel hint="Promo hanya aktif mulai jam ini (format 24 jam), mis. 07:00 untuk promo sarapan.">
                                     Jam Mulai
                                 </FieldLabel>
-                                <input
-                                    type="time"
+                                <TimePickerField
                                     value={data.daily_start_time}
-                                    onChange={(event) =>
-                                        setData("daily_start_time", event.target.value)
+                                    onChange={(value) =>
+                                        setData("daily_start_time", value)
                                     }
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                 />
                                 <InputError message={errors.daily_start_time} />
                             </div>
                             <div>
-                                <FieldLabel hint="Isi bersama jam mulai. Jika kosong, promo dianggap tidak dibatasi jam.">
+                                <FieldLabel hint="Isi bersama jam mulai. Jika kosong, promo dianggap tidak dibatasi jam (format 24 jam).">
                                     Jam Selesai
                                 </FieldLabel>
-                                <input
-                                    type="time"
+                                <TimePickerField
                                     value={data.daily_end_time}
-                                    onChange={(event) =>
-                                        setData("daily_end_time", event.target.value)
+                                    onChange={(value) =>
+                                        setData("daily_end_time", value)
                                     }
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                                 />
                                 <InputError message={errors.daily_end_time} />
                             </div>
+                            <div className="md:col-span-2">
+                                <TimeFormatHint />
+                            </div>
+                            <div className="md:col-span-2">
+                                <FieldLabel hint="Catatan internal untuk tim, misalnya alasan promo dibuat, channel kampanye, atau instruksi operasional. Tidak ditampilkan ke pelanggan.">
+                                    Catatan
+                                </FieldLabel>
+                                <textarea
+                                    rows="3"
+                                    value={data.notes}
+                                    onChange={(event) =>
+                                        setData("notes", event.target.value)
+                                    }
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                />
+                            </div>
+                            <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                <input
+                                    type="checkbox"
+                                    checked={data.is_active}
+                                    onChange={(event) =>
+                                        setData("is_active", event.target.checked)
+                                    }
+                                />
+                                Aktifkan rule ini
+                                <HintButton>
+                                    Jika dimatikan, rule tetap tersimpan tetapi engine promo tidak akan memakainya di POS, kasir, atau self-order.
+                                </HintButton>
+                            </label>
                         </div>
                     </CardSection>
 
@@ -1053,66 +1470,6 @@ export default function Form({
                             </div>
                         </CardSection>
                     )}
-
-                    <CardSection
-                        title="Jadwal & Catatan"
-                        description="Gunakan jadwal bila promo hanya aktif pada periode tertentu."
-                    >
-                        <div className="grid gap-4 md:grid-cols-2">
-                            <div>
-                                <FieldLabel hint="Versi singkat dari jadwal. Kosongkan jika promo boleh langsung aktif tanpa tanggal mulai khusus.">
-                                    Mulai
-                                </FieldLabel>
-                                <input
-                                    type="datetime-local"
-                                    value={data.starts_at}
-                                    onChange={(event) =>
-                                        setData("starts_at", event.target.value)
-                                    }
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                />
-                            </div>
-                            <div>
-                                <FieldLabel hint="Kosongkan jika promo boleh terus aktif sampai dinonaktifkan manual.">
-                                    Berakhir
-                                </FieldLabel>
-                                <input
-                                    type="datetime-local"
-                                    value={data.ends_at}
-                                    onChange={(event) =>
-                                        setData("ends_at", event.target.value)
-                                    }
-                                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                />
-                            </div>
-                            <div className="md:col-span-2">
-                                <FieldLabel hint="Catatan internal untuk tim, misalnya alasan promo dibuat, channel kampanye, atau instruksi operasional.">
-                                    Catatan
-                                </FieldLabel>
-                                <textarea
-                                    rows="3"
-                                    value={data.notes}
-                                    onChange={(event) =>
-                                        setData("notes", event.target.value)
-                                    }
-                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                                />
-                            </div>
-                            <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                <input
-                                    type="checkbox"
-                                    checked={data.is_active}
-                                    onChange={(event) =>
-                                        setData("is_active", event.target.checked)
-                                    }
-                                />
-                                Aktifkan rule ini
-                                <HintButton>
-                                    Jika dimatikan, rule tetap tersimpan tetapi engine promo tidak akan memakainya di POS, kasir, atau self-order.
-                                </HintButton>
-                            </label>
-                        </div>
-                    </CardSection>
 
                     <CardSection
                         title="Coba Dulu Sebelum Simpan"

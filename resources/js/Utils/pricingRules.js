@@ -1,15 +1,15 @@
 export const PROMO_KIND_LABELS = {
     standard_discount: "Harga Spesial",
-    qty_break: "Belanja Lebih Untung",
+    qty_break: "Beli Banyak, Lebih Hemat",
     bundle_price: "Paket Hemat",
-    buy_x_get_y: "Promo Buy Get",
+    buy_x_get_y: "Beli X Gratis Y",
 };
 
 export const RECEIPT_PROMO_KIND_LABELS = {
     standard_discount: "Harga Spesial",
-    qty_break: "Belanja Lebih Untung",
+    qty_break: "Beli Banyak, Lebih Hemat",
     bundle_price: "Paket Hemat",
-    buy_x_get_y: "Promo Buy Get",
+    buy_x_get_y: "Beli X Gratis Y",
 };
 
 export const REWARD_ITEM_LABEL = "Item Bonus Promo";
@@ -43,7 +43,7 @@ export const promoBadgeSummary = (rule, fallbackLabel = null) => {
         badge: PROMO_KIND_LABELS[rule.kind] || "Promo",
         title:
             rule.kind === "buy_x_get_y"
-                ? rule.name || fallbackLabel || "Promo buy-get"
+                ? rule.name || fallbackLabel || "Promo Beli X Gratis Y"
                 : rule.label || rule.name || fallbackLabel || "Promo aktif",
         detail: rule.detail || null,
     };
@@ -60,9 +60,9 @@ export const promoHeadline = (kind, qty = 1) => {
 
     return (
         {
-            qty_break: `Beli ${quantity}+ lebih hemat`,
-            bundle_price: "Ambil paket, harga lebih hemat",
-            buy_x_get_y: "Benefit buy-get diterapkan",
+            qty_break: `Beli ${quantity}+, makin hemat`,
+            bundle_price: "Ambil paketnya, makin hemat",
+            buy_x_get_y: "Beli beberapa, gratis beberapa",
         }[kind] || null
     );
 };
@@ -115,7 +115,7 @@ export const promoBenefitPreview = ({
             if (qty < triggerQty) {
                 return {
                     status: "pending",
-                    headline: "Belum memenuhi syarat promo buy-get.",
+                    headline: "Belum memenuhi syarat promo Beli X Gratis Y.",
                     detail: `Butuh ${triggerQty}x ${currentBuyItem?.product_title || "item pembelian"}. Setelah itu tambahkan ${rewardLabels} ke keranjang agar benefit final terbaca jelas.`,
                     lineTotal: basePrice * qty,
                     savings: 0,
@@ -124,8 +124,8 @@ export const promoBenefitPreview = ({
 
             return {
                 status: "info",
-                headline: "Syarat pembelian sudah terpenuhi, bonus beda produk belum ada di keranjang.",
-                detail: `Beli ${buyLabels}, lalu tambahkan ${rewardLabels} ke keranjang. Benefit final akan dihitung otomatis di keranjang.`,
+                headline: "Syarat pembelian terpenuhi, bonus belum ditambahkan.",
+                detail: `Beli ${buyLabels}, lalu tambahkan ${rewardLabels} ke keranjang. Benefit final dihitung otomatis.`,
                 lineTotal: basePrice * qty,
                 savings: 0,
             };
@@ -351,7 +351,7 @@ export const promoMetaText = (
 
     if (compact && item?.pricing_rule_kind === "buy_x_get_y") {
         return [
-            "Promo Buy Get",
+            "Beli X Gratis Y",
             item?.pricing_group_label || item?.pricing_rule_name || null,
         ]
             .filter(Boolean)
@@ -399,7 +399,7 @@ export const promoDetailText = (item) => {
             : kind === "bundle_price"
               ? "Paket promo diterapkan."
               : kind === "buy_x_get_y"
-                ? "Promo buy-get aktif."
+                ? "Beli X, gratis Y — hemat Rp lebih besar."
                 : "Harga promo diterapkan.";
 
     return `${title} • ${detail}`;
@@ -1334,7 +1334,7 @@ export const buildLocalPricingPreview = (cartItems = []) => {
                     rule,
                     participants,
                     discountTotal,
-                    label: rule?.name || rule?.label || "Buy Get",
+                    label: rule?.name || rule?.label || "Beli X Gratis Y",
                 };
             })
             .filter(Boolean)

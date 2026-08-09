@@ -542,14 +542,39 @@ export default function MenuCatalog({
                                             </div>
                                             <div className="mt-3 space-y-2">
                                                 <div className="flex items-baseline gap-3">
-                                                    <p className={`text-lg font-bold ${isOutOfStock ? "text-slate-400 line-through" : "text-slate-900"}`}>
-                                                        {formatPrice(selectedProduct.effective_price ?? selectedProduct.sell_price)}
-                                                    </p>
-                                                    {selectedProduct.pricing_badge ? (
-                                                        <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
-                                                            {selectedProduct.pricing_badge.label}
-                                                        </span>
-                                                    ) : null}
+                                                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                                                        {selectedProduct.pricing_badge?.promo_price &&
+                                                        selectedProduct.pricing_badge.promo_price <
+                                                            selectedProduct.pricing_badge.base_price ? (
+                                                            <span className="rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-600">
+                                                                {Math.round(
+                                                                    ((selectedProduct.pricing_badge.base_price -
+                                                                        selectedProduct.pricing_badge.promo_price) /
+                                                                        selectedProduct.pricing_badge.base_price) *
+                                                                        100
+                                                                )}
+                                                                % OFF
+                                                            </span>
+                                                        ) : null}
+                                                        <p className={`text-sm text-slate-400 line-through ${
+                                                            isOutOfStock ? "text-slate-300" : ""
+                                                        }`}>
+                                                            {selectedProduct.pricing_badge?.base_price &&
+                                                            selectedProduct.pricing_badge.promo_price &&
+                                                            selectedProduct.pricing_badge.promo_price <
+                                                                selectedProduct.pricing_badge.base_price
+                                                                ? formatPrice(selectedProduct.pricing_badge.base_price)
+                                                                : null}
+                                                        </p>
+                                                        <p className={`text-lg font-bold ${isOutOfStock ? "text-slate-400 line-through" : "text-slate-900"}`}>
+                                                            {formatPrice(selectedProduct.effective_price ?? selectedProduct.sell_price)}
+                                                        </p>
+                                                        {selectedProduct.pricing_badge ? (
+                                                            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                                                                {selectedProduct.pricing_badge.label}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
                                                 </div>
                                                 <p className="text-sm leading-6 text-slate-600">
                                                     {selectedProduct.description?.trim()

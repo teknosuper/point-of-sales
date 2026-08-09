@@ -180,7 +180,7 @@ export default function CartLineItem({
                             {REWARD_ITEM_LABEL}
                         </span>
                         <span className="text-[11px] text-emerald-700 dark:text-emerald-300">
-                            {item.promo_reward_meta?.rule_name || "Buy Get"}
+                            {item.promo_reward_meta?.rule_name || "Beli X Gratis Y"}
                         </span>
                     </div>
                 ) : null}

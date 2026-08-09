@@ -217,7 +217,7 @@ const ProductCard = memo(function ProductCard({
                                 Topping Wajib
                             </span>
                         )}
-                        {showBadge && !showPromo && (
+                        {showBadge && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-rose-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-lg shadow-rose-500/30">
                                 <IconTag size={12} />
                                 {promoBadge.label}
@@ -421,9 +421,17 @@ const ProductCard = memo(function ProductCard({
                     }`}
                 >
                     {showPromo && (
-                        <p className={`${isListMode ? "text-xs" : "text-[10px]"} text-slate-400 line-through`}>
-                            {formatPrice(basePrice)}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                            <span className="rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-600 dark:bg-rose-950/50 dark:text-rose-300">
+                                {Math.round(
+                                    ((basePrice - promoPrice) / basePrice) * 100
+                                )}
+                                % OFF
+                            </span>
+                            <p className={`${isListMode ? "text-xs" : "text-[10px]"} text-slate-400 line-through`}>
+                                {formatPrice(basePrice)}
+                            </p>
+                        </div>
                     )}
                     <p className={`font-bold text-primary-600 dark:text-primary-400 ${
                         isListMode ? "text-sm" : "text-sm"

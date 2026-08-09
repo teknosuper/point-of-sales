@@ -932,7 +932,7 @@ export default function Menu({
             }, null);
 
             if (!completedCycles || completedCycles <= 0) {
-                toast.error("Syarat promo buy-get belum terpenuhi.");
+                toast.error("Syarat promo Beli X Gratis Y belum terpenuhi.");
                 return;
             }
 
