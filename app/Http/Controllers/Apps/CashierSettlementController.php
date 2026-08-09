@@ -879,15 +879,15 @@ class CashierSettlementController extends Controller
         $allocationQuery = $this->buildTenantWalletAllocationQuery($user, $activeOutlet);
         $settlementOutletIds = $this->resolveTenantSettlementOutletIds($user, $activeOutlet);
 
+        $allocationTotals = (clone $allocationQuery)
+            ->selectRaw('COALESCE(SUM(subtotal), 0) as subtotal_total, COALESCE(SUM(promo_discount_total), 0) as promo_discount_total')
+            ->first();
+        $grossSalesTotal = (int) ($allocationTotals->subtotal_total ?? 0);
+        $pricingDiscountTotal = (int) ($allocationTotals->promo_discount_total ?? 0);
+        $prePromoReferenceTotal = $grossSalesTotal + $pricingDiscountTotal;
+
         $allocationIds = (clone $allocationQuery)->pluck('id');
-        $grossSalesTotal = $allocationIds->isNotEmpty()
-            ? (int) ((clone $allocationQuery)->sum('subtotal') ?? 0)
-            : 0;
         $ownerMarkupTotal = TenantWalletMetrics::sumOwnerMarkupValueForAllocationIds($allocationIds);
-        $prePromoReferenceTotal = $allocationIds->isNotEmpty()
-            ? (int) ((clone $allocationQuery)->sum('subtotal') + (clone $allocationQuery)->sum('promo_discount_total'))
-            : 0;
-        $pricingDiscountTotal = max(0, $prePromoReferenceTotal - $grossSalesTotal);
 
         $approvedTotal = (int) CashierSettlementRequest::query()
             ->whereIn('outlet_id', $settlementOutletIds->all())
@@ -968,15 +968,10 @@ class CashierSettlementController extends Controller
             ->whereIn('tenant_outlet_id', $tenantOutletIds->all());
 
         $allocationIds = (clone $allocationQuery)->pluck('id');
-        $grossSalesTotal = $allocationIds->isNotEmpty()
-            ? (int) ((clone $allocationQuery)->sum('subtotal') ?? 0)
-            : 0;
         $ownerMarkupTotal = TenantWalletMetrics::sumOwnerMarkupValueForAllocationIds($allocationIds);
-        $completedTransactionIds = (clone $allocationQuery)
+        $completedTransactionsCount = (int) (clone $allocationQuery)
             ->distinct('transaction_id')
-            ->pluck('transaction_id');
-
-        $completedTransactionsCount = $completedTransactionIds->count();
+            ->count('transaction_id');
 
         $pendingKitchenTransactionsCount = (int) TransactionTenantAllocation::query()
             ->when(
@@ -989,7 +984,7 @@ class CashierSettlementController extends Controller
                     ->where('waiter_status', '!=', 'delivered')
                     ->orWhereNull('delivered_at');
             })
-            ->whereNotIn('transaction_id', $completedTransactionIds->all())
+            ->whereNotIn('transaction_id', (clone $allocationQuery)->select('transaction_id'))
             ->distinct('transaction_id')
             ->count('transaction_id');
 
@@ -1004,7 +999,7 @@ class CashierSettlementController extends Controller
                     ->where('waiter_status', '!=', 'delivered')
                     ->orWhereNull('delivered_at');
             })
-            ->whereNotIn('transaction_id', $completedTransactionIds->all())
+            ->whereNotIn('transaction_id', (clone $allocationQuery)->select('transaction_id'))
             ->sum('subtotal');
 
         $totalTransactionsCount = (int) Transaction::query()
@@ -1027,6 +1022,8 @@ class CashierSettlementController extends Controller
             ->get()
             ->keyBy('tenant_outlet_id');
 
+        $grossSalesTotal = (int) $completedByTenant->sum('gross_sales_total');
+
         $pendingByTenant = TransactionTenantAllocation::query()
             ->when(
                 (string) ($activeOutlet->outlet_type ?? '') === 'main',
@@ -1038,7 +1035,7 @@ class CashierSettlementController extends Controller
                     ->where('waiter_status', '!=', 'delivered')
                     ->orWhereNull('delivered_at');
             })
-            ->whereNotIn('transaction_id', $completedTransactionIds->all())
+            ->whereNotIn('transaction_id', (clone $allocationQuery)->select('transaction_id'))
             ->selectRaw('tenant_outlet_id, COUNT(DISTINCT transaction_id) as total_transactions, COALESCE(SUM(subtotal), 0) as gross_sales_total')
             ->groupBy('tenant_outlet_id')
             ->get()
