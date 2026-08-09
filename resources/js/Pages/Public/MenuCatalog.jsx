@@ -1,5 +1,6 @@
 import ProductGrid from "@/Components/POS/ProductGrid";
 import LazyImage from "@/Components/Dashboard/LazyImage";
+import PromoCarousel from "@/Components/Public/PromoCarousel";
 import { Head } from "@inertiajs/react";
 import { getProductImageUrl, getProductThumbUrl } from "@/Utils/imageUrl";
 import {
@@ -377,6 +378,7 @@ export default function MenuCatalog({
                                         initialViewMode="grid"
                                         persistViewMode={false}
                                         bestSellerIds={bestSellerIds}
+                                        beforeGridSlot={<PromoCarousel outlet={outlet} />}
                                     />
 
                                     <div className="border-t border-slate-200 bg-white px-4 py-3">

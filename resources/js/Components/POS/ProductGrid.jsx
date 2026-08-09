@@ -580,6 +580,7 @@ export default function ProductGrid({
     scrollIntro = null,
     initialSortMode,
     bestSellerIds = [],
+    beforeGridSlot = null,
 }) {
     const [searchDraft, setSearchDraft] = useState(searchQuery || "");
     const [selectedMainCategoryId, setSelectedMainCategoryId] = useState(null);
@@ -1519,6 +1520,7 @@ export default function ProductGrid({
                         Menyiapkan hasil pencarian produk...
                     </div>
                 )}
+                {beforeGridSlot}
                 {sortedProducts.length > 0 ? (
                     groupedCategorySections.length > 0 ? (
                         <>
