@@ -188,6 +188,7 @@ export default function ModifierOptionsModal({
         : "bg-slate-950 text-white shadow-slate-900/10 dark:bg-primary-500/20 dark:text-primary-100";
 
     // ----- UX: panduan topping & wizard (3 langkah) -----
+    const modalScrollRef = useRef(null);
     const toppingSectionRef = useRef(null);
     const notesFieldRef = useRef(null);
     const notesSectionRef = useRef(null);
@@ -195,6 +196,17 @@ export default function ModifierOptionsModal({
     const [toppingAlert, setToppingAlert] = useState(false);
     // Step 1 = Jenis Penyajian, step 2 = Topping/Menu, step 3 = Keterangan
     const [step, setStep] = useState("jenis");
+
+    const scrollToSection = (target) => {
+        const container = modalScrollRef.current;
+        if (!container || !target) {
+            return;
+        }
+
+        const containerRect = container.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        container.scrollTop += targetRect.top - containerRect.top - 16;
+    };
 
     React.useEffect(() => {
         // Reset wizard setiap kali produk atau jenis penyajian berubah
@@ -205,28 +217,24 @@ export default function ModifierOptionsModal({
     }, [product?.id, hasModifierOptions]);
 
     React.useEffect(() => {
-        // Saat masuk ke langkah penyajian atau keterangan, scroll ke section-nya
-        // agar user langsung melihat konten yang relevan (tanpa fokus ke input).
-        if (step === "jenis") {
-            const timer = window.setTimeout(() => {
-                jenisSectionRef.current?.scrollIntoView({
-                    behavior: "smooth",
-                    block: "start",
-                });
-            }, 100);
-            return () => window.clearTimeout(timer);
-        }
+        // Setiap modal dibuka atau langkah berubah, langsung arahkan scroll ke
+        // section yang relevan agar user tidak perlu mencari-cari secara manual.
+        const timer = window.setTimeout(() => {
+            if (step === "jenis") {
+                // Penyajian adalah langkah 1 dan disusun paling atas; pastikan
+                // scroll kembali ke paling atas begitu modal untuk produk baru dibuka.
+                modalScrollRef.current?.scrollTo?.({ top: 0, behavior: "auto" });
+                return;
+            }
 
-        if (step === "notes") {
-            const timer = window.setTimeout(() => {
-                notesSectionRef.current?.scrollIntoView({
-                    behavior: "smooth",
-                    block: "start",
-                });
-            }, 100);
-            return () => window.clearTimeout(timer);
-        }
-    }, [step]);
+            scrollToSection(
+                step === "notes"
+                    ? notesSectionRef.current
+                    : toppingSectionRef.current
+            );
+        }, 80);
+        return () => window.clearTimeout(timer);
+    }, [step, product?.id]);
 
     if (!product) {
         return null;
@@ -236,10 +244,7 @@ export default function ModifierOptionsModal({
         // Validasi topping wajib sebelum lanjut ke keterangan
         if (selectionIsRequired && !hasSatisfiedRequiredSelection) {
             setToppingAlert(true);
-            toppingSectionRef.current?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-            });
+            scrollToSection(toppingSectionRef.current);
             return;
         }
 
@@ -288,7 +293,51 @@ export default function ModifierOptionsModal({
                     </button>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div ref={modalScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+                    {/* ===== Pilihan Take Away / Dine In per menu (langkah 1, paling atas) ===== */}
+                    {step === "jenis" ? (
+                        <div ref={jenisSectionRef} className="mx-5 mt-4 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                                        Jenis Penyajian
+                                    </p>
+                                    <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                                        {orderType === "take_away"
+                                            ? "Akan dicatat [TAKE AWAY] di keterangan agar dapur tahu & bungkus wajib dipilih."
+                                            : "Akan dicatat [DINE IN] di keterangan agar dapur tahu."}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => onOrderTypeChange?.("dine_in")}
+                                    className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
+                                        orderType === "dine_in"
+                                            ? "border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+                                            : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                                    }`}
+                                >
+                                    <IconToolsKitchen2 size={16} />
+                                    Dine In
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => onOrderTypeChange?.("take_away")}
+                                    className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
+                                        orderType === "take_away"
+                                            ? "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                            : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
+                                    }`}
+                                >
+                                    <IconShoppingBag size={16} />
+                                    Take Away
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
+
                     <div className={`mx-5 mt-4 overflow-hidden rounded-[28px] border shadow-sm ${heroClass}`}>
                         <div className="grid gap-0 sm:grid-cols-[160px,minmax(0,1fr)]">
                             <div className="relative aspect-[4/3] overflow-hidden bg-slate-100 dark:bg-slate-800 sm:aspect-auto sm:h-full">
@@ -358,50 +407,6 @@ export default function ModifierOptionsModal({
                             </div>
                         </div>
                     </div>
-
-                    {/* ===== Pilihan Take Away / Dine In per menu ===== */}
-                    {step === "jenis" ? (
-                        <div ref={jenisSectionRef} className="mx-5 mt-4 rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-                            <div className="flex items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                                        Jenis Penyajian
-                                    </p>
-                                    <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-                                        {orderType === "take_away"
-                                            ? "Akan dicatat [TAKE AWAY] di keterangan agar dapur tahu & bungkus wajib dipilih."
-                                            : "Akan dicatat [DINE IN] di keterangan agar dapur tahu."}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="mt-2 grid grid-cols-2 gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => onOrderTypeChange?.("dine_in")}
-                                    className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
-                                        orderType === "dine_in"
-                                            ? "border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
-                                            : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
-                                    }`}
-                                >
-                                    <IconToolsKitchen2 size={16} />
-                                    Dine In
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => onOrderTypeChange?.("take_away")}
-                                    className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold transition ${
-                                        orderType === "take_away"
-                                            ? "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
-                                            : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
-                                    }`}
-                                >
-                                    <IconShoppingBag size={16} />
-                                    Take Away
-                                </button>
-                            </div>
-                        </div>
-                    ) : null}
 
                     {/* ===== Indikator langkah (simpel) ===== */}
                     <div className="mx-5 mt-4 flex items-center gap-2">
