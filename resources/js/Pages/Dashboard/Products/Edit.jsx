@@ -1367,12 +1367,25 @@ export default function Edit({
                                         Ringkasan rule pricing aktif yang sedang menyentuh produk ini, termasuk potongan dan cara rule tersebut bekerja.
                                     </p>
                                 </div>
-                                <Link
-                                    href={route("pricing-rules.index")}
-                                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                                >
-                                    Buka Promo Harga
-                                </Link>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {canManagePricing ? (
+                                        <Link
+                                            href={route("pricing-rules.create", {
+                                                product_id: product.id,
+                                            })}
+                                            className="inline-flex items-center justify-center rounded-xl bg-primary-500 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-primary-600"
+                                        >
+                                            <IconPlus size={14} className="mr-1" />
+                                            Tambah Promo
+                                        </Link>
+                                    ) : null}
+                                    <Link
+                                        href={route("pricing-rules.index")}
+                                        className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                    >
+                                        Buka Promo Harga
+                                    </Link>
+                                </div>
                             </div>
 
                             <div className="mt-4 grid gap-3 md:grid-cols-3">
@@ -1435,6 +1448,14 @@ export default function Edit({
                                                         <span className="rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                                                             {entry.rule?.label}
                                                         </span>
+                                                        {canManagePricing ? (
+                                                            <Link
+                                                                href={route("pricing-rules.edit", entry.id)}
+                                                                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-primary-300"
+                                                            >
+                                                                Kelola
+                                                            </Link>
+                                                        ) : null}
                                                     </div>
                                                     <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
                                                         {entry.rule?.detail}

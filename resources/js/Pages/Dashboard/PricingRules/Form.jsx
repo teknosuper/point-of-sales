@@ -452,10 +452,12 @@ export default function Form({
     kindOptions = [],
     priceBasisOptions = [],
     pricingContext = {},
+    preset = null,
 }) {
     const isEdit = mode === "edit";
     const forcedPriceBasis = pricingContext?.forced_price_basis || null;
     const [showInfoModal, setShowInfoModal] = useState(false);
+    const presetProductId = preset?.product_id ? String(preset.product_id) : "";
 
     // Preset tanggal/jam default saat create: waktu sekarang (24 jam, lokal).
     const nowPreset = (() => {
@@ -470,12 +472,14 @@ export default function Form({
     })();
 
     const { data, setData, post, put, processing, errors, transform } = useForm({
-        name: rule?.name ?? "",
-        kind: rule?.kind ?? "standard_discount",
+        name: rule?.name ?? (preset?.product_title ? `Promo ${preset.product_title}` : ""),
+        kind: rule?.kind ?? preset?.kind ?? "standard_discount",
         is_active: Boolean(rule?.is_active ?? true),
         priority: String(rule?.priority ?? 100),
-        target_type: rule?.target_type ?? "all",
-        product_id: rule?.product_id ? String(rule.product_id) : "",
+        target_type: rule?.target_type ?? (preset ? "product" : "all"),
+        product_id: rule?.product_id
+            ? String(rule.product_id)
+            : presetProductId,
         category_id: rule?.category_id ? String(rule.category_id) : "",
         customer_scope: rule?.customer_scope ?? "all",
         eligible_loyalty_tiers: rule?.eligible_loyalty_tiers ?? [],
@@ -700,6 +704,17 @@ export default function Form({
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                     Gunakan tombol <span className="font-semibold">Panduan Promo</span> untuk melihat ringkasan promo tenant, promo owner, dan hal yang wajib dicek sebelum menyimpan rule.
                 </div>
+
+                {preset?.product_title ? (
+                    <div className="flex items-start gap-3 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-200">
+                        <IconInfoCircle size={18} className="mt-0.5 shrink-0" />
+                        <p>
+                            Promo ini dibuat dari halaman produk. Produk{" "}
+                            <span className="font-semibold">{preset.product_title}</span> sudah
+                            dipilih sebagai target — silakan lanjut melengkapi aturan diskonnya.
+                        </p>
+                    </div>
+                ) : null}
 
                 <form onSubmit={submit} className="space-y-6">
                     {validationMessages.length > 0 && (

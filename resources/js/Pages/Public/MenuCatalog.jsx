@@ -374,6 +374,8 @@ export default function MenuCatalog({
                                         groupByCategoryWhenMainCategoryFiltered={true}
                                         storageNamespace={`public-menu:${outlet?.code || store?.name || "default"}`}
                                         initialSortMode="featured_first"
+                                        initialViewMode="grid"
+                                        persistViewMode={false}
                                         bestSellerIds={bestSellerIds}
                                     />
 

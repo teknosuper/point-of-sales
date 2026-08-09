@@ -193,7 +193,26 @@ class PricingRuleController extends Controller
 
     public function create(Request $request)
     {
-        return Inertia::render('Dashboard/PricingRules/Create', $this->formPayload($request));
+        $preset = null;
+        $productId = $request->integer('product_id');
+
+        if ($productId) {
+            $product = Product::find($productId);
+
+            if ($product) {
+                $preset = [
+                    'product_id' => (string) $product->id,
+                    'product_title' => $product->title,
+                    'target_type' => PricingRule::TARGET_PRODUCT,
+                    'kind' => PricingRule::KIND_STANDARD_DISCOUNT,
+                ];
+            }
+        }
+
+        return Inertia::render('Dashboard/PricingRules/Create', [
+            ...$this->formPayload($request),
+            'preset' => $preset,
+        ]);
     }
 
     public function store(Request $request)

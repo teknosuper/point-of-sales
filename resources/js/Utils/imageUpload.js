@@ -1,4 +1,5 @@
 export const IMAGE_UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
+export const MAX_ORIGINAL_UPLOAD_BYTES = 7 * 1024 * 1024;
 export const IMAGE_UPLOAD_ACCEPT =
     ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
 export const ALLOWED_IMAGE_MIME_TYPES = [
@@ -134,6 +135,14 @@ export const prepareImageUpload = async (
 ) => {
     if (!file) {
         return { ok: true, error: "", file: null };
+    }
+
+    if (file.size > MAX_ORIGINAL_UPLOAD_BYTES) {
+        return {
+            ok: false,
+            error: "Foto terlalu besar (>7MB). Pilih foto dengan resolusi lebih kecil.",
+            file: null,
+        };
     }
 
     if (!allowedMimeTypes.includes(file.type)) {
