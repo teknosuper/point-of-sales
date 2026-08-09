@@ -485,7 +485,7 @@ class CashierSettlementController extends Controller
 
         $paginator = $query->paginate($perPage)->appends($request->except('page'));
 
-        $rows = $paginator->getCollection()->map(function ($transaction) use ($tenantOutletIds, $tenantNames) {
+        $rows = $paginator->getCollection()->map(function ($transaction) use ($tenantOutletIds) {
             $details = $transaction->details ?? collect();
             $reason = 'Tidak teralokasi';
             $detailTenantIds = [];
@@ -883,11 +883,11 @@ class CashierSettlementController extends Controller
         $grossSalesTotal = $allocationIds->isNotEmpty()
             ? (int) ((clone $allocationQuery)->sum('subtotal') ?? 0)
             : 0;
-        $tenantNetTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);
         $ownerMarkupTotal = TenantWalletMetrics::sumOwnerMarkupValueForAllocationIds($allocationIds);
         $prePromoReferenceTotal = $allocationIds->isNotEmpty()
             ? (int) ((clone $allocationQuery)->sum('subtotal') + (clone $allocationQuery)->sum('promo_discount_total'))
             : 0;
+        $pricingDiscountTotal = max(0, $prePromoReferenceTotal - $grossSalesTotal);
 
         $approvedTotal = (int) CashierSettlementRequest::query()
             ->whereIn('outlet_id', $settlementOutletIds->all())
@@ -901,14 +901,18 @@ class CashierSettlementController extends Controller
             ->where('status', CashierSettlementRequest::STATUS_PENDING)
             ->sum('requested_amount');
 
-        $receivableTotal = max(0, $tenantNetTotal - $approvedTotal);
-        $availableBalance = max(0, $tenantNetTotal - $approvedTotal - $pendingTotal);
+        // Hak tenant yang masuk saldo = nilai dasar tenant dikurangi promo tenant.
+        // $grossSalesTotal (sum subtotal) sudah merupakan nilai bersih setelah promo.
+        $claimableTotal = max(0, $grossSalesTotal);
+        $receivableTotal = max(0, $claimableTotal - $approvedTotal);
+        $availableBalance = max(0, $claimableTotal - $approvedTotal - $pendingTotal);
 
         return [
-            'tenant_sales_total' => $tenantNetTotal,
+            'tenant_sales_total' => $claimableTotal,
+            'tenant_base_sales_total' => $prePromoReferenceTotal,
             'gross_sales_total' => $grossSalesTotal,
             'base_total' => $prePromoReferenceTotal,
-            'pricing_discount_total' => max(0, $prePromoReferenceTotal - $grossSalesTotal),
+            'pricing_discount_total' => $pricingDiscountTotal,
             'owner_markup_total' => $ownerMarkupTotal,
             'approved_total' => $approvedTotal,
             'pending_total' => $pendingTotal,
@@ -967,7 +971,6 @@ class CashierSettlementController extends Controller
         $grossSalesTotal = $allocationIds->isNotEmpty()
             ? (int) ((clone $allocationQuery)->sum('subtotal') ?? 0)
             : 0;
-        $tenantRightsTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);
         $ownerMarkupTotal = TenantWalletMetrics::sumOwnerMarkupValueForAllocationIds($allocationIds);
         $completedTransactionIds = (clone $allocationQuery)
             ->distinct('transaction_id')
@@ -1181,7 +1184,6 @@ class CashierSettlementController extends Controller
             ->map(fn (Collection $rows) => $rows->pluck('id')->map(fn ($id) => (int) $id)->values());
 
         $returnGrossTotal = 0;
-        $returnTenantRightsTotal = 0;
         $returnOwnerMarkupTotal = 0;
 
         foreach ($returns as $salesReturn) {
@@ -1194,13 +1196,9 @@ class CashierSettlementController extends Controller
                 $qty = (int) ($item->qty_return ?? 0);
                 $detailQty = max(1, (int) ($detail->qty ?? 1));
                 $customerUnitPrice = (int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0);
-                $tenantBaseUnitPrice = (int) ($detail->tenant_base_unit_price ?? 0);
                 $ownerMarkupUnitPrice = (int) ($detail->owner_markup_unit_price ?? 0);
 
                 $returnGrossTotal += $customerUnitPrice * $qty;
-                $returnTenantRightsTotal += (int) ($detail->tenant_net_total ?? 0) > 0
-                    ? (int) round(((int) $detail->tenant_net_total / $detailQty) * $qty)
-                    : $tenantBaseUnitPrice * $qty;
                 $returnOwnerMarkupTotal += (int) ($detail->owner_net_total ?? 0) > 0
                     ? (int) round(((int) $detail->owner_net_total / $detailQty) * $qty)
                     : $ownerMarkupUnitPrice * $qty;
@@ -1208,8 +1206,13 @@ class CashierSettlementController extends Controller
         }
 
         $grossSalesTotal = max(0, $grossSalesTotal - $returnGrossTotal);
-        $tenantRightsTotal -= $returnTenantRightsTotal;
         $ownerMarkupTotal -= $returnOwnerMarkupTotal;
+
+        // Hak penarikan tenant memakai omzet bersih setelah promo (subtotal).
+        // $grossSalesTotal (sum subtotal) sudah merupakan nilai bersih setelah promo.
+        $claimableTotal = max(0, $grossSalesTotal);
+        // Hak bersih tenant secara agregat (sudah dipotong promo) untuk kartu owner.
+        $tenantRightsTotal = $claimableTotal;
 
         $withdrawnTotal = (int) CashierSettlementRequest::query()
             ->whereIn('outlet_id', $tenantOutletIds->all())
@@ -1239,8 +1242,8 @@ class CashierSettlementController extends Controller
             ->groupBy('outlet_id')
             ->pluck('total_amount', 'outlet_id');
 
-        $shouldWithdrawTotal = max(0, $tenantRightsTotal);
-        $unwithdrawnTotal = max(0, $tenantRightsTotal - $withdrawnTotal - $pendingWithdrawTotal);
+        $shouldWithdrawTotal = max(0, $claimableTotal);
+        $unwithdrawnTotal = max(0, $claimableTotal - $withdrawnTotal - $pendingWithdrawTotal);
 
         $returnAdjustmentsByTenant = $returns->reduce(function (array $carry, SalesReturn $salesReturn) use ($tenantOutletIds) {
             foreach ($salesReturn->items as $item) {
@@ -1286,7 +1289,6 @@ class CashierSettlementController extends Controller
             $grossSalesTotal = $tenantAllocationIds->isNotEmpty()
                 ? (int) TransactionTenantAllocation::query()->whereIn('id', $tenantAllocationIds->all())->sum('subtotal')
                 : 0;
-            $tenantRightsTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($tenantAllocationIds);
             $ownerMarkupTotal = TenantWalletMetrics::sumOwnerMarkupValueForAllocationIds($tenantAllocationIds);
             $returnAdjustments = $returnAdjustmentsByTenant[$tenantId] ?? [];
             $completedGrossSalesTotal = (int) ($completedByTenant->get($tenantId)?->gross_sales_total ?? 0);
@@ -1294,12 +1296,13 @@ class CashierSettlementController extends Controller
 
             $grossSalesTotal = max(0, $grossSalesTotal - (int) ($returnAdjustments['gross_sales_total'] ?? 0));
             $completedGrossSalesTotal = max(0, $completedGrossSalesTotal - (int) ($returnAdjustments['gross_sales_total'] ?? 0));
-            $tenantRightsTotal -= (int) ($returnAdjustments['tenant_rights_total'] ?? 0);
+            // Hak bersih tenant setelah promo mengikuti omzet subtotal (gross setelah promo).
+            $tenantRightsTotal = $grossSalesTotal;
             $ownerMarkupTotal -= (int) ($returnAdjustments['owner_markup_total'] ?? 0);
             $withdrawnTotal = (int) ($withdrawnByTenant->get($tenantId, 0) ?? 0);
             $pendingWithdrawTotal = (int) ($pendingWithdrawByTenant->get($tenantId, 0) ?? 0);
-            $shouldWithdrawTotal = max(0, $tenantRightsTotal);
-            $unwithdrawnTotal = max(0, $tenantRightsTotal - $withdrawnTotal - $pendingWithdrawTotal);
+            $shouldWithdrawTotal = max(0, $grossSalesTotal);
+            $unwithdrawnTotal = max(0, $grossSalesTotal - $withdrawnTotal - $pendingWithdrawTotal);
             $tenant = $tenantNames->get($tenantId);
 
             return [
@@ -1359,13 +1362,12 @@ class CashierSettlementController extends Controller
             ->latest('delivered_at')
             ->get();
 
-        $tenantNetTotals = TenantWalletMetrics::tenantNetTotalsByAllocationIds($allocations->pluck('id'));
         $ownerMarkupTotals = TenantWalletMetrics::ownerMarkupTotalsByAllocationIds($allocations->pluck('id'));
 
-        $allocationRows = $allocations->map(function (TransactionTenantAllocation $allocation) use ($tenantNetTotals, $ownerMarkupTotals) {
-                $tenantNetTotal = (int) ($tenantNetTotals->get($allocation->id, 0) ?? 0);
+        $allocationRows = $allocations->map(function (TransactionTenantAllocation $allocation) use ($ownerMarkupTotals) {
                 $grossAfterPromo = (int) ($allocation->subtotal ?? 0);
                 $ownerMarkupTotal = (int) ($ownerMarkupTotals->get($allocation->id, 0) ?? 0);
+                $pricingDiscountTotal = (int) ($allocation->promo_discount_total ?? 0);
                 $activityAtRaw = $allocation->getRawOriginal('delivered_at');
                 $dateKey = ReportTimezone::sourceDateKey($activityAtRaw);
 
@@ -1446,11 +1448,12 @@ class CashierSettlementController extends Controller
                     'payment_method' => $allocation->transaction?->payment_method,
                     'payment_status' => $allocation->transaction?->payment_status ?? $allocation->payment_status,
                     'gross_sales_total' => $grossAfterPromo,
-                    'tenant_sales_total' => $tenantNetTotal,
+                    'tenant_sales_total' => max(0, $grossAfterPromo),
+                    'tenant_base_sales_total' => max(0, $grossAfterPromo + $pricingDiscountTotal),
                     'owner_product_markup_total' => (int) collect($details)->sum('owner_product_markup_total'),
                     'owner_topping_markup_total' => (int) collect($details)->sum('owner_topping_markup_total'),
                     'owner_markup_total' => $ownerMarkupTotal,
-                    'pricing_discount_total' => (int) ($allocation->promo_discount_total ?? 0),
+                    'pricing_discount_total' => $pricingDiscountTotal,
                     'delivered_at' => ReportTimezone::formatSourceIso8601($allocation->getRawOriginal('delivered_at')),
                     'created_at' => ReportTimezone::formatSourceIso8601($allocation->transaction?->getRawOriginal('created_at')),
                     'activity_at' => ReportTimezone::formatSourceIso8601($activityAtRaw),

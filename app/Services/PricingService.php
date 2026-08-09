@@ -229,6 +229,7 @@ class PricingService
                 $directCandidates['line_total'] / max(1, (int) $quantity)
             );
             $rule = $directCandidates['rule'];
+            $customerBaseTotal = (int) $components['customer_base_total'];
 
             return [
                 'base_unit_price' => $baseUnitPrice,
@@ -237,7 +238,7 @@ class PricingService
                 'owner_markup_unit_price' => (int) $components['owner_markup_unit_price'],
                 'effective_unit_price' => $effectiveUnitPrice,
                 'quantity' => (int) $quantity,
-                'line_base_total' => (int) $components['customer_base_total'],
+                'line_base_total' => $customerBaseTotal,
                 'line_total' => (int) $directCandidates['line_total'],
                 'line_discount_total' => (int) $directCandidates['line_discount'],
                 'tenant_base_total' => (int) $components['tenant_base_total'],
@@ -246,9 +247,12 @@ class PricingService
                 'owner_discount_total' => (int) ($directCandidates['owner_discount_total'] ?? 0),
                 'tenant_net_total' => max(0, (int) $components['tenant_base_total'] - (int) ($directCandidates['tenant_discount_total'] ?? 0)),
                 'owner_net_total' => max(0, (int) $components['owner_base_total'] - (int) ($directCandidates['owner_discount_total'] ?? 0)),
-                'pricing_rule' => $this->serializeRule($rule, true, [
-                    'active_break' => $directCandidates['active_break'] ?? null,
-                ]),
+                'pricing_rule' => $this->serializeCustomerFacingDirectRule(
+                    $rule,
+                    $directCandidates['active_break'] ?? null,
+                    $customerBaseTotal,
+                    (int) $directCandidates['line_discount']
+                ),
             ];
         }
 
@@ -284,6 +288,31 @@ class PricingService
             'pricing_rule' => $complexRule ? $this->serializeRule($complexRule, false) : null,
             'is_promo_reward' => false,
         ];
+    }
+
+    private function serializeCustomerFacingDirectRule(
+        PricingRule $rule,
+        ?array $activeBreak,
+        int $lineBaseTotal,
+        int $lineDiscount
+    ): array {
+        $serialized = $this->serializeRule($rule, true, ['active_break' => $activeBreak]);
+
+        // Jangan bocorkan basis harga beli ke customer: persen dihitung ulang
+        // dari harga jual (line_base_total) agar label konsisten dengan harga tampil.
+        if ($rule->discount_type !== PricingRule::TYPE_PERCENTAGE || $lineBaseTotal <= 0 || $lineDiscount <= 0) {
+            return $serialized;
+        }
+
+        $percent = round(($lineDiscount / $lineBaseTotal) * 100);
+        $percentText = rtrim(rtrim(number_format($percent, 2, '.', ''), '0'), '.');
+
+        $serialized['label'] = $rule->kind === PricingRule::KIND_QTY_BREAK
+            ? 'Beli Banyak '.$percentText.'% OFF'
+            : $percentText.'% OFF';
+        $serialized['detail'] = 'Diskon '.$percentText.'% untuk item ini.';
+
+        return $serialized;
     }
 
     public function ruleLabel(PricingRule $rule, ?array $activeBreak = null): string
@@ -504,12 +533,18 @@ class PricingService
             $currentItem['owner_discount_total'] += (int) $candidate['owner_discount_total'];
             $currentItem['tenant_net_total'] = max(0, (int) $currentItem['tenant_base_total'] - (int) $currentItem['tenant_discount_total']);
             $currentItem['owner_net_total'] = max(0, (int) $currentItem['owner_base_total'] - (int) $currentItem['owner_discount_total']);
-            $currentItem['pricing_rule'] = $this->serializeRule($candidate['rule'], true, [
-                'active_break' => $candidate['active_break'] ?? null,
-            ]);
-            $currentItem['applied_rules'][] = $this->serializeRule($candidate['rule'], true, [
-                'active_break' => $candidate['active_break'] ?? null,
-            ]);
+            $currentItem['pricing_rule'] = $this->serializeCustomerFacingDirectRule(
+                $candidate['rule'],
+                $candidate['active_break'] ?? null,
+                (int) $currentItem['line_base_total'],
+                (int) $candidate['line_discount']
+            );
+            $currentItem['applied_rules'][] = $this->serializeCustomerFacingDirectRule(
+                $candidate['rule'],
+                $candidate['active_break'] ?? null,
+                (int) $currentItem['line_base_total'],
+                (int) $candidate['line_discount']
+            );
             $currentItem['pricing_group_key'] ??= 'rule-'.$candidate['rule']->id;
             $currentItem['pricing_group_label'] ??= $candidate['rule']->name;
             $items->put($cartId, $currentItem);

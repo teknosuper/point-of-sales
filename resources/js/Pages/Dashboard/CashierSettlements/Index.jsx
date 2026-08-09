@@ -37,6 +37,18 @@ const formatDateTime = (value) =>
           }).format(new Date(value))
         : "-";
 
+const FieldError = ({ errors, name }) => {
+    if (!errors) return null;
+    let message = errors[name];
+    if (!message && name) {
+        const nestedKey = Object.keys(errors).find((key) => key.startsWith(`${name}.`));
+        if (nestedKey) message = errors[nestedKey];
+    }
+    return message ? (
+        <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{message}</p>
+    ) : null;
+};
+
 const defaultFilters = {
     q: "",
     status: "",
@@ -210,6 +222,8 @@ export default function Index({
     const [unallocatedModalOpen, setUnallocatedModalOpen] = useState(false);
     const [returnsModalOpen, setReturnsModalOpen] = useState(false);
     const [approvalForm, setApprovalForm] = useState(defaultApprovalForm);
+    const [approving, setApproving] = useState(false);
+    const [rejecting, setRejecting] = useState(false);
     const [rejectionReason, setRejectionReason] = useState("");
     const [rejectionPassword, setRejectionPassword] = useState("");
     const [repairingUnallocated, setRepairingUnallocated] = useState(false);
@@ -450,7 +464,7 @@ export default function Index({
 
     const submitApprove = (event) => {
         event.preventDefault();
-        if (!approvalModal.request) return;
+        if (!approvalModal.request || approving) return;
 
         const formData = new FormData();
         formData.append('_method', 'PATCH');
@@ -470,6 +484,7 @@ export default function Index({
             });
         }
 
+        setApproving(true);
         router.post(
             route("cashier-settlements.approve", approvalModal.request.id),
             formData,
@@ -477,21 +492,32 @@ export default function Index({
                 preserveScroll: true,
                 forceFormData: true,
                 onSuccess: () => closeModal(),
-                onError: () => setApprovalForm((prev) => ({ ...prev, password: "" })),
+                onError: (errors) => {
+                    setApprovalForm((prev) => ({ ...prev, password: "" }));
+                    const firstMessage = Object.values(errors || {}).find((value) => Array.isArray(value) ? value[0] : value);
+                    if (firstMessage) toast.error(Array.isArray(firstMessage) ? firstMessage[0] : firstMessage);
+                },
+                onFinish: () => setApproving(false),
             }
         );
     };
 
     const submitReject = (event) => {
         event.preventDefault();
-        if (!approvalModal.request) return;
+        if (!approvalModal.request || rejecting) return;
+        setRejecting(true);
         router.patch(
             route("cashier-settlements.reject", approvalModal.request.id),
             { rejection_reason: rejectionReason, password: rejectionPassword },
             {
                 preserveScroll: true,
                 onSuccess: () => closeModal(),
-                onError: () => setRejectionPassword(""),
+                onError: (errors) => {
+                    setRejectionPassword("");
+                    const firstMessage = Object.values(errors || {}).find((value) => Array.isArray(value) ? value[0] : value);
+                    if (firstMessage) toast.error(Array.isArray(firstMessage) ? firstMessage[0] : firstMessage);
+                },
+                onFinish: () => setRejecting(false),
             }
         );
     };
@@ -2332,50 +2358,64 @@ export default function Index({
                             {approvalModal.mode === "approve" ? (
                                 <form onSubmit={submitApprove} className="flex min-h-0 flex-1 flex-col">
                                     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+                                    {errors?.approval ? (
+                                        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                            {errors.approval}
+                                        </div>
+                                    ) : null}
                                     <div className="grid gap-4 md:grid-cols-2">
                                         <div>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Nominal Approve</label>
-                                            <input type="number" min="0" value={approvalForm.approved_amount} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approved_amount: e.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800" />
+                                            <input type="number" min="0" value={approvalForm.approved_amount} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approved_amount: e.target.value }))} className={`h-11 w-full rounded-xl border bg-slate-50 px-4 text-sm dark:bg-slate-800 ${errors?.approved_amount ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} />
+                                            <FieldError errors={errors} name="approved_amount" />
                                         </div>
                                         <div>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Nama Penerima</label>
-                                            <input value={approvalForm.recipient_name} onChange={(e) => setApprovalForm((prev) => ({ ...prev, recipient_name: e.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800" required />
+                                            <input value={approvalForm.recipient_name} onChange={(e) => setApprovalForm((prev) => ({ ...prev, recipient_name: e.target.value }))} className={`h-11 w-full rounded-xl border bg-slate-50 px-4 text-sm dark:bg-slate-800 ${errors?.recipient_name ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} required />
+                                            <FieldError errors={errors} name="recipient_name" />
                                         </div>
                                     </div>
 
                                     <div className="grid gap-4 md:grid-cols-3">
                                         <div>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Cash</label>
-                                            <input type="number" min="0" value={approvalForm.approved_cash_amount} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approved_cash_amount: e.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800" />
+                                            <input type="number" min="0" value={approvalForm.approved_cash_amount} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approved_cash_amount: e.target.value }))} className={`h-11 w-full rounded-xl border bg-slate-50 px-4 text-sm dark:bg-slate-800 ${errors?.approved_cash_amount ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} />
+                                            <FieldError errors={errors} name="approved_cash_amount" />
                                         </div>
                                         <div>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Transfer</label>
-                                            <input type="number" min="0" value={approvalForm.approved_transfer_amount} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approved_transfer_amount: e.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800" />
+                                            <input type="number" min="0" value={approvalForm.approved_transfer_amount} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approved_transfer_amount: e.target.value }))} className={`h-11 w-full rounded-xl border bg-slate-50 px-4 text-sm dark:bg-slate-800 ${errors?.approved_transfer_amount ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} />
+                                            <FieldError errors={errors} name="approved_transfer_amount" />
                                         </div>
                                         <div>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Lainnya</label>
-                                            <input type="number" min="0" value={approvalForm.approved_other_amount} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approved_other_amount: e.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800" />
+                                            <input type="number" min="0" value={approvalForm.approved_other_amount} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approved_other_amount: e.target.value }))} className={`h-11 w-full rounded-xl border bg-slate-50 px-4 text-sm dark:bg-slate-800 ${errors?.approved_other_amount ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} />
+                                            <FieldError errors={errors} name="approved_other_amount" />
                                         </div>
                                     </div>
 
                                     <div className="grid gap-4 md:grid-cols-3">
                                         <div>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Label Lainnya</label>
-                                            <input value={approvalForm.approved_other_label} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approved_other_label: e.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800" />
+                                            <input value={approvalForm.approved_other_label} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approved_other_label: e.target.value }))} className={`h-11 w-full rounded-xl border bg-slate-50 px-4 text-sm dark:bg-slate-800 ${errors?.approved_other_label ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} />
+                                            <FieldError errors={errors} name="approved_other_label" />
                                         </div>
                                         <div>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Referensi</label>
-                                            <input value={approvalForm.approval_reference} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approval_reference: e.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800" />
+                                            <input value={approvalForm.approval_reference} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approval_reference: e.target.value }))} className={`h-11 w-full rounded-xl border bg-slate-50 px-4 text-sm dark:bg-slate-800 ${errors?.approval_reference ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} />
+                                            <FieldError errors={errors} name="approval_reference" />
                                         </div>
                                         <div>
                                             <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Waktu Bayar</label>
-                                            <input type="datetime-local" value={approvalForm.paid_at} onChange={(e) => setApprovalForm((prev) => ({ ...prev, paid_at: e.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm dark:border-slate-700 dark:bg-slate-800" />
+                                            <input type="datetime-local" value={approvalForm.paid_at} onChange={(e) => setApprovalForm((prev) => ({ ...prev, paid_at: e.target.value }))} className={`h-11 w-full rounded-xl border bg-slate-50 px-4 text-sm dark:bg-slate-800 ${errors?.paid_at ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} />
+                                            <FieldError errors={errors} name="paid_at" />
                                         </div>
                                     </div>
 
                                     <div>
                                         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Catatan Approval</label>
-                                        <textarea value={approvalForm.approval_notes} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approval_notes: e.target.value }))} rows={3} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800" />
+                                        <textarea value={approvalForm.approval_notes} onChange={(e) => setApprovalForm((prev) => ({ ...prev, approval_notes: e.target.value }))} rows={3} className={`w-full rounded-xl border bg-slate-50 px-4 py-3 text-sm dark:bg-slate-800 ${errors?.approval_notes ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} />
+                                        <FieldError errors={errors} name="approval_notes" />
                                     </div>
 
                                     <div>
@@ -2394,6 +2434,7 @@ export default function Index({
                                             }
                                             className="block w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800"
                                         />
+                                        <FieldError errors={errors} name="approval_proof_photos" />
                                         {approvalForm.approval_proof_photos?.length ? (
                                             <div className="mt-3 flex flex-wrap gap-2">
                                                 {approvalForm.approval_proof_photos.map((file, index) => (
@@ -2408,6 +2449,11 @@ export default function Index({
                                     <div className={`rounded-2xl border px-4 py-3 text-sm ${approvalBreakdownTotal === approvalTarget ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300" : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300"}`}>
                                         Total pembayaran: <span className="font-semibold">{formatCurrency(approvalBreakdownTotal)}</span> • Target approval: <span className="font-semibold">{formatCurrency(approvalTarget)}</span>
                                     </div>
+                                    {errors?.amount ? (
+                                        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                            {errors.amount}
+                                        </div>
+                                    ) : null}
 
                                     <div>
                                         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Konfirmasi Password</label>
@@ -2424,17 +2470,23 @@ export default function Index({
                                         <button type="button" onClick={closeModal} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
                                             Batal
                                         </button>
-                                        <button type="submit" disabled={approvalBreakdownTotal !== approvalTarget} className="rounded-2xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
-                                            Simpan Approval
+                                        <button type="submit" disabled={approvalBreakdownTotal !== approvalTarget || approving} className="rounded-2xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+                                            {approving ? "Menyimpan…" : "Simpan Approval"}
                                         </button>
                                     </div>
                                 </form>
                             ) : (
                                 <form onSubmit={submitReject} className="flex min-h-0 flex-1 flex-col">
                                     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+                                    {errors?.approval ? (
+                                        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+                                            {errors.approval}
+                                        </div>
+                                    ) : null}
                                     <div>
                                         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Alasan Penolakan</label>
-                                        <textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} rows={4} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800" required />
+                                        <textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} rows={4} className={`w-full rounded-xl border bg-slate-50 px-4 py-3 text-sm dark:bg-slate-800 ${errors?.rejection_reason ? "border-rose-300 dark:border-rose-800" : "border-slate-200 dark:border-slate-700"}`} required />
+                                        <FieldError errors={errors} name="rejection_reason" />
                                     </div>
                                     <div>
                                         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">Konfirmasi Password</label>
@@ -2450,8 +2502,8 @@ export default function Index({
                                         <button type="button" onClick={closeModal} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 dark:border-slate-700 dark:text-slate-300">
                                             Batal
                                         </button>
-                                        <button type="submit" className="rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white">
-                                            Tolak Pengajuan
+                                        <button type="submit" disabled={rejecting} className="rounded-2xl bg-rose-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">
+                                            {rejecting ? "Menyimpan…" : "Tolak Pengajuan"}
                                         </button>
                                     </div>
                                 </form>
