@@ -187,11 +187,11 @@ class ProductReviewQueueTest extends TestCase
         $this->assertSame('Terlalu mirip produk lain', $rename->fresh()->review_note);
     }
 
-    public function test_tenant_reverting_name_cancels_pending_rename_request(): void
+    public function test_tenant_can_cancel_pending_rename_request(): void
     {
         [$tenantUser, $tenantOutlet] = $this->createTenantEditor();
         $product = $this->createApprovedProduct($tenantOutlet->id, 'Nama Asli');
-        ProductRenameRequest::create([
+        $rename = ProductRenameRequest::create([
             'product_id' => $product->id,
             'old_title' => 'Nama Asli',
             'requested_title' => 'Nama Baru',
@@ -200,24 +200,12 @@ class ProductReviewQueueTest extends TestCase
         ]);
 
         $this->actingAs($tenantUser)
-            ->put(route('products.update', $product->id), [
-                'title' => 'Nama Asli',
-                'description' => $product->description,
-                'category_id' => $product->category_id,
-                'tenant_outlet_id' => $tenantOutlet->id,
-                'buy_price' => $product->buy_price,
-                'sell_price' => $product->sell_price,
-                'tenant_hpp_price' => $product->tenant_hpp_price,
-            ])
-            ->assertRedirect(route('products.index'));
+            ->delete(route('products.rename.cancel', $rename->id))
+            ->assertRedirect();
 
         $this->assertSame('approved', $product->fresh()->publish_status);
-        $this->assertNull(
-            ProductRenameRequest::query()
-                ->where('product_id', $product->id)
-                ->where('status', 'pending')
-                ->first()
-        );
+        $this->assertSame('Nama Asli', $product->fresh()->title);
+        $this->assertNull($rename->fresh());
     }
 
     public function test_tenant_price_only_change_keeps_approved_product_approved(): void
