@@ -189,10 +189,10 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middleware(['permission:products-review', 'step_up'])
         ->name('products.reject');
     Route::patch('product-rename-requests/{rename}/approve', [ProductController::class, 'approveRename'])
-        ->middleware(['permission:products-review', 'step_up'])
+        ->middleware('permission:products-review')
         ->name('products.rename.approve');
     Route::patch('product-rename-requests/{rename}/reject', [ProductController::class, 'rejectRename'])
-        ->middleware(['permission:products-review', 'step_up'])
+        ->middleware('permission:products-review')
         ->name('products.rename.reject');
     Route::delete('product-rename-requests/{rename}', [ProductController::class, 'cancelRename'])
         ->middleware('permission:products-edit')
