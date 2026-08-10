@@ -1211,118 +1211,39 @@ class CashierSettlementController extends Controller
             $filters
         );
 
-        $allocations = $allocationQuery
-            ->with([
-                'transaction.customer:id,name',
-                'transaction.cashier:id,name',
-                'tenantOutlet:id,name,code',
-                'items.transactionDetail.product:id,title',
-                'items.transactionDetail.modifiers',
+        // Agregasi bulan/hari pakai baris ringan (kolom terpilih, tanpa relasi),
+        // supaya tidak menghidrasi semua alokasi + items + product + modifiers.
+        $allocationIndex = (clone $allocationQuery)
+            ->select([
+                'id',
+                'transaction_id',
+                'allocation_number',
+                'subtotal',
+                'promo_discount_total',
+                'delivered_at',
             ])
             ->latest('delivered_at')
+            ->toBase()
             ->get();
 
-        $ownerMarkupTotals = TenantWalletMetrics::ownerMarkupTotalsByAllocationIds($allocations->pluck('id'));
+        $ownerMarkupTotals = TenantWalletMetrics::ownerMarkupTotalsByAllocationIds($allocationIndex->pluck('id'));
 
-        $allocationRows = $allocations->map(function (TransactionTenantAllocation $allocation) use ($ownerMarkupTotals) {
-            $grossAfterPromo = (int) ($allocation->subtotal ?? 0);
-            $ownerMarkupTotal = (int) ($ownerMarkupTotals->get($allocation->id, 0) ?? 0);
-            $pricingDiscountTotal = (int) ($allocation->promo_discount_total ?? 0);
-            $activityAtRaw = $allocation->getRawOriginal('delivered_at');
+        $allocationAggregateRows = $allocationIndex->map(function ($allocation) use ($ownerMarkupTotals) {
+            $activityAtRaw = $allocation->delivered_at;
             $dateKey = ReportTimezone::sourceDateKey($activityAtRaw);
-
-            $details = $allocation->items->map(function ($item) {
-                $detail = $item->transactionDetail;
-                $remainingQty = (int) ($item->qty ?? 0);
-                $detailQty = max(1, (int) ($detail?->qty ?? $remainingQty ?? 1));
-                $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? $item->base_unit_price ?? 0);
-                $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
-                $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
-
-                // Resolve modifier split (base=tenant, markup=owner) per modifier
-                // Data lama (base_price=0, markup_price=0): anggap seluruh harga sebagai base tenant, markup=0
-                $modifierRows = collect($detail?->modifiers ?? [])
-                    ->map(function ($modifier) {
-                        $storedBasePrice = (int) ($modifier->base_price ?? 0);
-                        $storedMarkupPrice = (int) ($modifier->markup_price ?? 0);
-                        $unitPrice = (int) $modifier->unit_price;
-
-                        if ($storedBasePrice === 0 && $storedMarkupPrice === 0 && $unitPrice > 0) {
-                            $storedBasePrice = $unitPrice;
-                        }
-
-                        return [
-                            'id' => $modifier->id,
-                            'name' => $modifier->name,
-                            'qty' => (int) $modifier->qty,
-                            'unit_price' => $unitPrice,
-                            'base_price' => $storedBasePrice,
-                            'markup_price' => $storedMarkupPrice,
-                            'total_price' => (int) $modifier->total_price,
-                        ];
-                    })
-                    ->values();
-
-                $tenantModifierBase = $modifierRows->sum(fn ($m) => (int) $m['base_price'] * (int) $m['qty']);
-                $ownerModifierMarkup = $modifierRows->sum(fn ($m) => (int) $m['markup_price'] * (int) $m['qty']);
-
-                $tenantNetPerUnit = $tenantBaseUnitPrice + (int) round($tenantModifierBase / max(1, $detailQty));
-                $ownerNetPerUnit = $ownerMarkupUnitPrice + (int) round($ownerModifierMarkup / max(1, $detailQty));
-
-                $tenantNetTotal = $tenantNetPerUnit * $remainingQty;
-                $ownerProductMarkupTotal = $ownerMarkupUnitPrice * $remainingQty;
-                $ownerToppingMarkupTotal = (int) round($ownerModifierMarkup / max(1, $detailQty)) * $remainingQty;
-                $ownerNetTotal = $ownerProductMarkupTotal + $ownerToppingMarkupTotal;
-
-                return [
-                    'id' => $detail?->id ?? $item->transaction_detail_id,
-                    'product_title' => $detail?->product?->title ?? 'Produk terhapus',
-                    'qty' => $remainingQty,
-                    'customer_unit_price' => $customerUnitPrice,
-                    'line_total' => $customerUnitPrice * $remainingQty,
-                    'tenant_base_unit_price' => $tenantBaseUnitPrice,
-                    'tenant_net_total' => $tenantNetTotal,
-                    'owner_markup_unit_price' => $ownerMarkupUnitPrice,
-                    'owner_product_markup_total' => $ownerProductMarkupTotal,
-                    'owner_topping_markup_total' => $ownerToppingMarkupTotal,
-                    'owner_net_total' => $ownerNetTotal,
-                    'discount_total' => (int) ($item->discount_total ?? 0),
-                    'notes' => $detail?->notes,
-                    'modifiers' => $modifierRows->all(),
-                ];
-            })->values()->all();
 
             return [
                 'id' => 'allocation-'.$allocation->id,
                 'entry_type' => 'allocation',
-                'entry_label' => 'Masuk Saldo',
-                'allocation_number' => $allocation->allocation_number,
-                'invoice' => $allocation->transaction?->invoice ?? $allocation->allocation_number,
-                'customer_name' => $allocation->transaction?->customer?->name ?? 'Pelanggan umum',
-                'cashier_name' => $allocation->transaction?->cashier?->name ?? '-',
-                'tenant_outlet' => $allocation->tenantOutlet ? [
-                    'id' => $allocation->tenantOutlet->id,
-                    'name' => $allocation->tenantOutlet->name,
-                    'code' => $allocation->tenantOutlet->code,
-                ] : null,
-                'payment_method' => $allocation->transaction?->payment_method,
-                'payment_status' => $allocation->transaction?->payment_status ?? $allocation->payment_status,
-                'gross_sales_total' => $grossAfterPromo,
-                'tenant_sales_total' => max(0, $grossAfterPromo),
-                'tenant_base_sales_total' => max(0, $grossAfterPromo + $pricingDiscountTotal),
-                'owner_product_markup_total' => (int) collect($details)->sum('owner_product_markup_total'),
-                'owner_topping_markup_total' => (int) collect($details)->sum('owner_topping_markup_total'),
-                'owner_markup_total' => $ownerMarkupTotal,
-                'pricing_discount_total' => $pricingDiscountTotal,
-                'delivered_at' => ReportTimezone::formatSourceIso8601($allocation->getRawOriginal('delivered_at')),
-                'created_at' => ReportTimezone::formatSourceIso8601($allocation->transaction?->getRawOriginal('created_at')),
-                'activity_at' => ReportTimezone::formatSourceIso8601($activityAtRaw),
+                'tenant_sales_total' => max(0, (int) ($allocation->subtotal ?? 0)),
+                'pricing_discount_total' => (int) ($allocation->promo_discount_total ?? 0),
+                'gross_sales_total' => (int) ($allocation->subtotal ?? 0),
+                'owner_markup_total' => (int) ($ownerMarkupTotals->get($allocation->id, 0) ?? 0),
                 'activity_ts' => strtotime((string) $activityAtRaw),
                 'date_key' => $dateKey,
                 'date_label' => $dateKey ? ReportTimezone::formatSourceDateLabel($dateKey, 'd M Y') : null,
                 'month_key' => $dateKey ? substr($dateKey, 0, 7) : null,
                 'month_label' => $dateKey ? Carbon::createFromFormat('Y-m-d', $dateKey, ReportTimezone::timezone())->translatedFormat('F Y') : null,
-                'details' => $details,
             ];
         })
             ->when(($filters['entry_type'] ?? '') === 'sales_return', fn (Collection $rows) => $rows->filter(fn (array $row) => false))
@@ -1330,9 +1251,23 @@ class CashierSettlementController extends Controller
 
         $returnRows = $this->buildTenantWalletReturnRows($user, $activeOutlet, $filters);
 
-        $combinedRows = $allocationRows
-            ->merge($returnRows)
-            ->sortByDesc(fn (array $row) => strtotime((string) ($row['activity_at'] ?? $row['delivered_at'] ?? $row['created_at'] ?? now()->toIso8601String())))
+        $returnAggregateRows = $returnRows->map(fn (array $row) => [
+            'id' => $row['id'],
+            'entry_type' => $row['entry_type'],
+            'tenant_sales_total' => (int) ($row['tenant_sales_total'] ?? 0),
+            'owner_markup_total' => (int) ($row['owner_markup_total'] ?? 0),
+            'pricing_discount_total' => (int) ($row['pricing_discount_total'] ?? 0),
+            'gross_sales_total' => (int) ($row['gross_sales_total'] ?? 0),
+            'activity_ts' => (int) ($row['activity_ts'] ?? 0),
+            'date_key' => $row['date_key'] ?? null,
+            'date_label' => $row['date_label'] ?? null,
+            'month_key' => $row['month_key'] ?? null,
+            'month_label' => $row['month_label'] ?? null,
+        ]);
+
+        $combinedRows = $allocationAggregateRows
+            ->merge($returnAggregateRows)
+            ->sortByDesc(fn (array $row) => (int) ($row['activity_ts'] ?? 0))
             ->values();
 
         $monthRows = $combinedRows
@@ -1374,29 +1309,28 @@ class CashierSettlementController extends Controller
         $selectedMonth = $monthRows->firstWhere('month_key', $selectedMonth)['month_key']
             ?? ($monthPageRows->first()['month_key'] ?? ($monthRows->first()['month_key'] ?? ''));
 
-        $monthScopedRows = $selectedMonth !== ''
-            ? $combinedRows->filter(fn (array $row) => ($row['month_key'] ?? '') === $selectedMonth)->values()
+        $dayRows = $selectedMonth !== ''
+            ? collect($combinedRows)
+                ->filter(fn (array $row) => ($row['month_key'] ?? '') === $selectedMonth)
+                ->groupBy('date_key')
+                ->map(function (Collection $rows, $dateKey) {
+                    $first = $rows->first();
+
+                    return [
+                        'date_key' => $dateKey,
+                        'date_label' => $first['date_label'] ?? $dateKey,
+                        'tenant_sales_total' => (int) $rows->sum('tenant_sales_total'),
+                        'owner_markup_total' => (int) $rows->sum('owner_markup_total'),
+                        'pricing_discount_total' => (int) $rows->sum('pricing_discount_total'),
+                        'gross_sales_total' => (int) $rows->sum('gross_sales_total'),
+                        'entries_count' => (int) $rows->count(),
+                        'sales_count' => (int) $rows->where('entry_type', 'allocation')->count(),
+                        'returns_count' => (int) $rows->where('entry_type', 'sales_return')->count(),
+                    ];
+                })
+                ->sortByDesc('date_key')
+                ->values()
             : collect();
-
-        $dayRows = $monthScopedRows
-            ->groupBy('date_key')
-            ->map(function (Collection $rows, $dateKey) {
-                $first = $rows->first();
-
-                return [
-                    'date_key' => $dateKey,
-                    'date_label' => $first['date_label'] ?? $dateKey,
-                    'tenant_sales_total' => (int) $rows->sum('tenant_sales_total'),
-                    'owner_markup_total' => (int) $rows->sum('owner_markup_total'),
-                    'pricing_discount_total' => (int) $rows->sum('pricing_discount_total'),
-                    'gross_sales_total' => (int) $rows->sum('gross_sales_total'),
-                    'entries_count' => (int) $rows->count(),
-                    'sales_count' => (int) $rows->where('entry_type', 'allocation')->count(),
-                    'returns_count' => (int) $rows->where('entry_type', 'sales_return')->count(),
-                ];
-            })
-            ->sortByDesc('date_key')
-            ->values();
 
         $dayPage = max(1, (int) request()->integer('wallet_day_page', 1));
         $dayPerPage = 10;
@@ -1417,8 +1351,10 @@ class CashierSettlementController extends Controller
         $selectedDay = $dayRows->firstWhere('date_key', $selectedDay)['date_key']
             ?? ($dayPageRows->first()['date_key'] ?? ($dayRows->first()['date_key'] ?? ''));
 
+        // Detail hanya dimuat penuh (dengan relasi items/product/modifiers/transaction)
+        // untuk satu hari terpilih, supaya memori bounded.
         $detailRows = $selectedDay !== ''
-            ? $monthScopedRows->filter(fn (array $row) => ($row['date_key'] ?? '') === $selectedDay)->values()
+            ? $this->buildTenantWalletDetailRows($allocationQuery, $ownerMarkupTotals, $returnRows, $filters, $selectedDay)
             : collect();
 
         $detailPage = max(1, (int) request()->integer('wallet_detail_page', 1));
@@ -1448,6 +1384,143 @@ class CashierSettlementController extends Controller
                 ? ReportTimezone::formatSourceDateLabel($selectedDay, 'd M Y')
                 : null,
             'details' => $detailPaginator,
+        ];
+    }
+
+    private function buildTenantWalletDetailRows(Builder $allocationQuery, Collection $ownerMarkupTotals, Collection $returnRows, array $filters, string $selectedDay): Collection
+    {
+        $dayAllocationModels = (clone $allocationQuery)
+            ->tap(function (Builder $builder) use ($selectedDay) {
+                ReportTimezone::applySourceDateRange($builder, 'delivered_at', [
+                    'start_date' => $selectedDay,
+                    'end_date' => $selectedDay,
+                ]);
+            })
+            ->with([
+                'transaction.customer:id,name',
+                'transaction.cashier:id,name',
+                'tenantOutlet:id,name,code',
+                'items.transactionDetail.product:id,title',
+                'items.transactionDetail.modifiers',
+            ])
+            ->latest('delivered_at')
+            ->get();
+
+        $dayAllocationRows = $dayAllocationModels
+            ->map(fn (TransactionTenantAllocation $allocation) => $this->mapAllocationDetailRow($allocation, $ownerMarkupTotals))
+            ->when(($filters['entry_type'] ?? '') === 'sales_return', fn (Collection $rows) => $rows->filter(fn (array $row) => false))
+            ->values();
+
+        $dayReturnRows = $returnRows
+            ->filter(fn (array $row) => ($row['date_key'] ?? '') === $selectedDay)
+            ->values();
+
+        return $dayAllocationRows
+            ->merge($dayReturnRows)
+            ->sortByDesc(fn (array $row) => (int) ($row['activity_ts'] ?? 0))
+            ->values();
+    }
+
+    private function mapAllocationDetailRow(TransactionTenantAllocation $allocation, Collection $ownerMarkupTotals): array
+    {
+        $grossAfterPromo = (int) ($allocation->subtotal ?? 0);
+        $ownerMarkupTotal = (int) ($ownerMarkupTotals->get($allocation->id, 0) ?? 0);
+        $pricingDiscountTotal = (int) ($allocation->promo_discount_total ?? 0);
+        $activityAtRaw = $allocation->getRawOriginal('delivered_at');
+        $dateKey = ReportTimezone::sourceDateKey($activityAtRaw);
+
+        $details = $allocation->items->map(function ($item) {
+            $detail = $item->transactionDetail;
+            $remainingQty = (int) ($item->qty ?? 0);
+            $detailQty = max(1, (int) ($detail?->qty ?? $remainingQty ?? 1));
+            $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? $item->base_unit_price ?? 0);
+            $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
+            $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
+
+            // Resolve modifier split (base=tenant, markup=owner) per modifier
+            // Data lama (base_price=0, markup_price=0): anggap seluruh harga sebagai base tenant, markup=0
+            $modifierRows = collect($detail?->modifiers ?? [])
+                ->map(function ($modifier) {
+                    $storedBasePrice = (int) ($modifier->base_price ?? 0);
+                    $storedMarkupPrice = (int) ($modifier->markup_price ?? 0);
+                    $unitPrice = (int) $modifier->unit_price;
+
+                    if ($storedBasePrice === 0 && $storedMarkupPrice === 0 && $unitPrice > 0) {
+                        $storedBasePrice = $unitPrice;
+                    }
+
+                    return [
+                        'id' => $modifier->id,
+                        'name' => $modifier->name,
+                        'qty' => (int) $modifier->qty,
+                        'unit_price' => $unitPrice,
+                        'base_price' => $storedBasePrice,
+                        'markup_price' => $storedMarkupPrice,
+                        'total_price' => (int) $modifier->total_price,
+                    ];
+                })
+                ->values();
+
+            $tenantModifierBase = $modifierRows->sum(fn ($m) => (int) $m['base_price'] * (int) $m['qty']);
+            $ownerModifierMarkup = $modifierRows->sum(fn ($m) => (int) $m['markup_price'] * (int) $m['qty']);
+
+            $tenantNetPerUnit = $tenantBaseUnitPrice + (int) round($tenantModifierBase / max(1, $detailQty));
+            $ownerNetPerUnit = $ownerMarkupUnitPrice + (int) round($ownerModifierMarkup / max(1, $detailQty));
+
+            $tenantNetTotal = $tenantNetPerUnit * $remainingQty;
+            $ownerProductMarkupTotal = $ownerMarkupUnitPrice * $remainingQty;
+            $ownerToppingMarkupTotal = (int) round($ownerModifierMarkup / max(1, $detailQty)) * $remainingQty;
+            $ownerNetTotal = $ownerProductMarkupTotal + $ownerToppingMarkupTotal;
+
+            return [
+                'id' => $detail?->id ?? $item->transaction_detail_id,
+                'product_title' => $detail?->product?->title ?? 'Produk terhapus',
+                'qty' => $remainingQty,
+                'customer_unit_price' => $customerUnitPrice,
+                'line_total' => $customerUnitPrice * $remainingQty,
+                'tenant_base_unit_price' => $tenantBaseUnitPrice,
+                'tenant_net_total' => $tenantNetTotal,
+                'owner_markup_unit_price' => $ownerMarkupUnitPrice,
+                'owner_product_markup_total' => $ownerProductMarkupTotal,
+                'owner_topping_markup_total' => $ownerToppingMarkupTotal,
+                'owner_net_total' => $ownerNetTotal,
+                'discount_total' => (int) ($item->discount_total ?? 0),
+                'notes' => $detail?->notes,
+                'modifiers' => $modifierRows->all(),
+            ];
+        })->values()->all();
+
+        return [
+            'id' => 'allocation-'.$allocation->id,
+            'entry_type' => 'allocation',
+            'entry_label' => 'Masuk Saldo',
+            'allocation_number' => $allocation->allocation_number,
+            'invoice' => $allocation->transaction?->invoice ?? $allocation->allocation_number,
+            'customer_name' => $allocation->transaction?->customer?->name ?? 'Pelanggan umum',
+            'cashier_name' => $allocation->transaction?->cashier?->name ?? '-',
+            'tenant_outlet' => $allocation->tenantOutlet ? [
+                'id' => $allocation->tenantOutlet->id,
+                'name' => $allocation->tenantOutlet->name,
+                'code' => $allocation->tenantOutlet->code,
+            ] : null,
+            'payment_method' => $allocation->transaction?->payment_method,
+            'payment_status' => $allocation->transaction?->payment_status ?? $allocation->payment_status,
+            'gross_sales_total' => $grossAfterPromo,
+            'tenant_sales_total' => max(0, $grossAfterPromo),
+            'tenant_base_sales_total' => max(0, $grossAfterPromo + $pricingDiscountTotal),
+            'owner_product_markup_total' => (int) collect($details)->sum('owner_product_markup_total'),
+            'owner_topping_markup_total' => (int) collect($details)->sum('owner_topping_markup_total'),
+            'owner_markup_total' => $ownerMarkupTotal,
+            'pricing_discount_total' => $pricingDiscountTotal,
+            'delivered_at' => ReportTimezone::formatSourceIso8601($allocation->getRawOriginal('delivered_at')),
+            'created_at' => ReportTimezone::formatSourceIso8601($allocation->transaction?->getRawOriginal('created_at')),
+            'activity_at' => ReportTimezone::formatSourceIso8601($activityAtRaw),
+            'activity_ts' => strtotime((string) $activityAtRaw),
+            'date_key' => $dateKey,
+            'date_label' => $dateKey ? ReportTimezone::formatSourceDateLabel($dateKey, 'd M Y') : null,
+            'month_key' => $dateKey ? substr($dateKey, 0, 7) : null,
+            'month_label' => $dateKey ? Carbon::createFromFormat('Y-m-d', $dateKey, ReportTimezone::timezone())->translatedFormat('F Y') : null,
+            'details' => $details,
         ];
     }
 
