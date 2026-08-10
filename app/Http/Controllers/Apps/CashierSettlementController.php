@@ -11,24 +11,21 @@ use App\Models\SalesReturn;
 use App\Models\Setting;
 use App\Models\Transaction;
 use App\Models\TransactionTenantAllocation;
-use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
 use App\Services\AuditLogService;
 use App\Services\CashierShiftService;
-use App\Services\FoodcourtTenantAllocationService;
 use App\Services\ModifierMarkupService;
 use App\Services\OutletResolver;
 use App\Support\ReportTimezone;
 use App\Support\TenantWalletMetrics;
 use Carbon\Carbon;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -512,9 +509,9 @@ class CashierSettlementController extends Controller
                 $reason = 'Tidak ada detail transaksi';
             } elseif (empty($detailTenantIds)) {
                 $reason = 'Detail transaksi tanpa tenant_outlet_id';
-            } elseif (!empty($detailTenantIds) && empty($inScopeTenantIds)) {
-                $reason = 'Tenant pada detail tidak termasuk scope aktif: ' . implode(', ', $detailTenantIds);
-            } elseif (!empty($detailTenantIds) && !empty($inScopeTenantIds)) {
+            } elseif (! empty($detailTenantIds) && empty($inScopeTenantIds)) {
+                $reason = 'Tenant pada detail tidak termasuk scope aktif: '.implode(', ', $detailTenantIds);
+            } elseif (! empty($detailTenantIds) && ! empty($inScopeTenantIds)) {
                 $reason = 'Tidak ada alokasi tenant untuk transaksi ini';
             }
 
@@ -956,7 +953,6 @@ class CashierSettlementController extends Controller
             ->get();
 
         $returnsCount = $returns->count();
-        $returnTransactionIds = $returns->pluck('transaction_id')->filter()->unique()->values()->all();
 
         $allocationQuery = TransactionTenantAllocation::query()
             ->where('waiter_status', 'delivered')
@@ -1040,139 +1036,6 @@ class CashierSettlementController extends Controller
             ->groupBy('tenant_outlet_id')
             ->get()
             ->keyBy('tenant_outlet_id');
-
-        $completedTransactionRows = TransactionTenantAllocation::query()
-            ->selectRaw('DISTINCT transaction_id, tenant_outlet_id, subtotal, delivered_at')
-            ->when(
-                (string) ($activeOutlet->outlet_type ?? '') === 'main',
-                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
-            )
-            ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
-            ->where('waiter_status', 'delivered')
-            ->whereNotNull('delivered_at')
-            ->get()
-            ->map(fn ($row) => [
-                'transaction_id' => (int) $row->transaction_id,
-                'tenant_outlet_id' => (int) $row->tenant_outlet_id,
-                'tenant_name' => $tenantNames->get($row->tenant_outlet_id)?->name ?? 'Tenant',
-                'tenant_code' => $tenantNames->get($row->tenant_outlet_id)?->code ?? null,
-                'subtotal' => (int) ($row->subtotal ?? 0),
-                'delivered_at' => $row->delivered_at ? ReportTimezone::formatSourceDateTime($row->getRawOriginal('delivered_at'), 'd M Y H:i') : null,
-            ])
-            ->values()
-            ->all();
-
-        $pendingKitchenTransactionRows = TransactionTenantAllocation::query()
-            ->selectRaw('DISTINCT transaction_id, tenant_outlet_id, subtotal, delivered_at')
-            ->when(
-                (string) ($activeOutlet->outlet_type ?? '') === 'main',
-                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
-            )
-            ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
-            ->where(function (Builder $builder) {
-                $builder
-                    ->where('waiter_status', '!=', 'delivered')
-                    ->orWhereNull('delivered_at');
-            })
-            ->get()
-            ->map(fn ($row) => [
-                'transaction_id' => (int) $row->transaction_id,
-                'tenant_outlet_id' => (int) $row->tenant_outlet_id,
-                'tenant_name' => $tenantNames->get($row->tenant_outlet_id)?->name ?? 'Tenant',
-                'tenant_code' => $tenantNames->get($row->tenant_outlet_id)?->code ?? null,
-                'subtotal' => (int) ($row->subtotal ?? 0),
-                'delivered_at' => $row->delivered_at ? ReportTimezone::formatSourceDateTime($row->getRawOriginal('delivered_at'), 'd M Y H:i') : null,
-            ])
-            ->values()
-            ->all();
-
-        $unallocatedTransactionRows = Transaction::query()
-            ->with(['details.product'])
-            ->when(
-                (string) ($activeOutlet->outlet_type ?? '') === 'main',
-                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
-            )
-            ->when(
-                (string) ($activeOutlet->outlet_type ?? '') === 'tenant',
-                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
-            )
-            ->whereDoesntHave('tenantAllocations', function (Builder $builder) use ($tenantOutletIds, $activeOutlet) {
-                $builder->where('waiter_status', 'delivered')
-                    ->whereNotNull('delivered_at')
-                    ->when(
-                        (string) ($activeOutlet->outlet_type ?? '') === 'main',
-                        fn (Builder $sub) => $sub->where('outlet_id', (int) $activeOutlet->id)
-                    )
-                    ->whereIn('tenant_outlet_id', $tenantOutletIds->all());
-            })
-            ->whereNotIn('id', $returnTransactionIds)
-            ->get()
-            ->map(function ($transaction) use ($tenantOutletIds) {
-                $details = $transaction->details ?? collect();
-                $reason = 'Tidak teralokasi';
-                $detailTenantIds = [];
-                $scopeTenantIds = $tenantOutletIds->values()->all();
-                $inScopeTenantIds = [];
-
-                if ($details->isNotEmpty()) {
-                    $detailTenantIds = $details
-                        ->filter(fn ($detail) => (int) ($detail->tenant_outlet_id ?? 0) > 0)
-                        ->pluck('tenant_outlet_id')
-                        ->unique()
-                        ->values()
-                        ->all();
-
-                    $inScopeTenantIds = $details
-                        ->filter(fn ($detail) => $tenantOutletIds->contains((int) ($detail->tenant_outlet_id ?? 0)))
-                        ->pluck('tenant_outlet_id')
-                        ->unique()
-                        ->values()
-                        ->all();
-                }
-
-                if ($details->isEmpty()) {
-                    $reason = 'Tidak ada detail transaksi';
-                } elseif (empty($detailTenantIds)) {
-                    $reason = 'Detail transaksi tanpa tenant_outlet_id';
-                } elseif (!empty($detailTenantIds) && empty($inScopeTenantIds)) {
-                    $reason = 'Tenant pada detail tidak termasuk scope aktif: ' . implode(', ', $detailTenantIds);
-                } elseif (!empty($detailTenantIds) && !empty($inScopeTenantIds)) {
-                    $reason = 'Tidak ada alokasi tenant untuk transaksi ini';
-                }
-
-                return [
-                    'transaction_id' => (int) $transaction->id,
-                    'invoice' => $transaction->invoice ?? '-',
-                    'customer_name' => $transaction->customer?->name ?? '-',
-                    'grand_total' => (int) ($transaction->grand_total ?? 0),
-                    'payment_status' => $transaction->payment_status ?? '-',
-                    'payment_method' => $transaction->payment_method ?? '-',
-                    'created_at' => $transaction->created_at ? ReportTimezone::formatSourceDateTime($transaction->getRawOriginal('created_at'), 'd M H:i') : null,
-                    'reason' => $reason,
-                    'detail_tenant_ids' => $detailTenantIds,
-                    'scope_tenant_ids' => $scopeTenantIds,
-                    'products' => $details->map(fn ($detail) => [
-                        'product_name' => $detail->product?->title ?? 'Produk tidak ditemukan',
-                        'qty' => (int) ($detail->qty ?? 0),
-                        'unit_price' => (int) ($detail->unit_price ?? 0),
-                        'tenant_outlet_id' => (int) ($detail->tenant_outlet_id ?? 0),
-                    ])->values()->all(),
-                ];
-            })
-            ->values()
-            ->all();
-
-        $totalTransactionsCount = (int) Transaction::query()
-            ->when(
-                (string) ($activeOutlet->outlet_type ?? '') === 'main',
-                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
-            )
-            ->when(
-                (string) ($activeOutlet->outlet_type ?? '') === 'tenant',
-                fn (Builder $builder) => $builder->where('outlet_id', (int) $activeOutlet->id)
-            )
-            ->distinct('id')
-            ->count('id');
 
         $allocationIdsByTenant = (clone $allocationQuery)
             ->select(['id', 'tenant_outlet_id'])
@@ -1362,106 +1225,106 @@ class CashierSettlementController extends Controller
         $ownerMarkupTotals = TenantWalletMetrics::ownerMarkupTotalsByAllocationIds($allocations->pluck('id'));
 
         $allocationRows = $allocations->map(function (TransactionTenantAllocation $allocation) use ($ownerMarkupTotals) {
-                $grossAfterPromo = (int) ($allocation->subtotal ?? 0);
-                $ownerMarkupTotal = (int) ($ownerMarkupTotals->get($allocation->id, 0) ?? 0);
-                $pricingDiscountTotal = (int) ($allocation->promo_discount_total ?? 0);
-                $activityAtRaw = $allocation->getRawOriginal('delivered_at');
-                $dateKey = ReportTimezone::sourceDateKey($activityAtRaw);
+            $grossAfterPromo = (int) ($allocation->subtotal ?? 0);
+            $ownerMarkupTotal = (int) ($ownerMarkupTotals->get($allocation->id, 0) ?? 0);
+            $pricingDiscountTotal = (int) ($allocation->promo_discount_total ?? 0);
+            $activityAtRaw = $allocation->getRawOriginal('delivered_at');
+            $dateKey = ReportTimezone::sourceDateKey($activityAtRaw);
 
-                $details = $allocation->items->map(function ($item) {
-                    $detail = $item->transactionDetail;
-                    $remainingQty = (int) ($item->qty ?? 0);
-                    $detailQty = max(1, (int) ($detail?->qty ?? $remainingQty ?? 1));
-                    $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? $item->base_unit_price ?? 0);
-                    $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
-                    $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
+            $details = $allocation->items->map(function ($item) {
+                $detail = $item->transactionDetail;
+                $remainingQty = (int) ($item->qty ?? 0);
+                $detailQty = max(1, (int) ($detail?->qty ?? $remainingQty ?? 1));
+                $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? $item->base_unit_price ?? 0);
+                $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
+                $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
 
-                    // Resolve modifier split (base=tenant, markup=owner) per modifier
-                    // Data lama (base_price=0, markup_price=0): anggap seluruh harga sebagai base tenant, markup=0
-                    $modifierRows = collect($detail?->modifiers ?? [])
-                        ->map(function ($modifier) {
-                            $storedBasePrice = (int) ($modifier->base_price ?? 0);
-                            $storedMarkupPrice = (int) ($modifier->markup_price ?? 0);
-                            $unitPrice = (int) $modifier->unit_price;
+                // Resolve modifier split (base=tenant, markup=owner) per modifier
+                // Data lama (base_price=0, markup_price=0): anggap seluruh harga sebagai base tenant, markup=0
+                $modifierRows = collect($detail?->modifiers ?? [])
+                    ->map(function ($modifier) {
+                        $storedBasePrice = (int) ($modifier->base_price ?? 0);
+                        $storedMarkupPrice = (int) ($modifier->markup_price ?? 0);
+                        $unitPrice = (int) $modifier->unit_price;
 
-                            if ($storedBasePrice === 0 && $storedMarkupPrice === 0 && $unitPrice > 0) {
-                                $storedBasePrice = $unitPrice;
-                            }
+                        if ($storedBasePrice === 0 && $storedMarkupPrice === 0 && $unitPrice > 0) {
+                            $storedBasePrice = $unitPrice;
+                        }
 
-                            return [
-                                'id' => $modifier->id,
-                                'name' => $modifier->name,
-                                'qty' => (int) $modifier->qty,
-                                'unit_price' => $unitPrice,
-                                'base_price' => $storedBasePrice,
-                                'markup_price' => $storedMarkupPrice,
-                                'total_price' => (int) $modifier->total_price,
-                            ];
-                        })
-                        ->values();
+                        return [
+                            'id' => $modifier->id,
+                            'name' => $modifier->name,
+                            'qty' => (int) $modifier->qty,
+                            'unit_price' => $unitPrice,
+                            'base_price' => $storedBasePrice,
+                            'markup_price' => $storedMarkupPrice,
+                            'total_price' => (int) $modifier->total_price,
+                        ];
+                    })
+                    ->values();
 
-                    $tenantModifierBase = $modifierRows->sum(fn ($m) => (int) $m['base_price'] * (int) $m['qty']);
-                    $ownerModifierMarkup = $modifierRows->sum(fn ($m) => (int) $m['markup_price'] * (int) $m['qty']);
+                $tenantModifierBase = $modifierRows->sum(fn ($m) => (int) $m['base_price'] * (int) $m['qty']);
+                $ownerModifierMarkup = $modifierRows->sum(fn ($m) => (int) $m['markup_price'] * (int) $m['qty']);
 
-                    $tenantNetPerUnit = $tenantBaseUnitPrice + (int) round($tenantModifierBase / max(1, $detailQty));
-                    $ownerNetPerUnit = $ownerMarkupUnitPrice + (int) round($ownerModifierMarkup / max(1, $detailQty));
+                $tenantNetPerUnit = $tenantBaseUnitPrice + (int) round($tenantModifierBase / max(1, $detailQty));
+                $ownerNetPerUnit = $ownerMarkupUnitPrice + (int) round($ownerModifierMarkup / max(1, $detailQty));
 
-                    $tenantNetTotal = $tenantNetPerUnit * $remainingQty;
-                    $ownerProductMarkupTotal = $ownerMarkupUnitPrice * $remainingQty;
-                    $ownerToppingMarkupTotal = (int) round($ownerModifierMarkup / max(1, $detailQty)) * $remainingQty;
-                    $ownerNetTotal = $ownerProductMarkupTotal + $ownerToppingMarkupTotal;
-
-                    return [
-                        'id' => $detail?->id ?? $item->transaction_detail_id,
-                        'product_title' => $detail?->product?->title ?? 'Produk terhapus',
-                        'qty' => $remainingQty,
-                        'customer_unit_price' => $customerUnitPrice,
-                        'line_total' => $customerUnitPrice * $remainingQty,
-                        'tenant_base_unit_price' => $tenantBaseUnitPrice,
-                        'tenant_net_total' => $tenantNetTotal,
-                        'owner_markup_unit_price' => $ownerMarkupUnitPrice,
-                        'owner_product_markup_total' => $ownerProductMarkupTotal,
-                        'owner_topping_markup_total' => $ownerToppingMarkupTotal,
-                        'owner_net_total' => $ownerNetTotal,
-                        'discount_total' => (int) ($item->discount_total ?? 0),
-                        'notes' => $detail?->notes,
-                        'modifiers' => $modifierRows->all(),
-                    ];
-                })->values()->all();
+                $tenantNetTotal = $tenantNetPerUnit * $remainingQty;
+                $ownerProductMarkupTotal = $ownerMarkupUnitPrice * $remainingQty;
+                $ownerToppingMarkupTotal = (int) round($ownerModifierMarkup / max(1, $detailQty)) * $remainingQty;
+                $ownerNetTotal = $ownerProductMarkupTotal + $ownerToppingMarkupTotal;
 
                 return [
-                    'id' => 'allocation-'.$allocation->id,
-                    'entry_type' => 'allocation',
-                    'entry_label' => 'Masuk Saldo',
-                    'allocation_number' => $allocation->allocation_number,
-                    'invoice' => $allocation->transaction?->invoice ?? $allocation->allocation_number,
-                    'customer_name' => $allocation->transaction?->customer?->name ?? 'Pelanggan umum',
-                    'cashier_name' => $allocation->transaction?->cashier?->name ?? '-',
-                    'tenant_outlet' => $allocation->tenantOutlet ? [
-                        'id' => $allocation->tenantOutlet->id,
-                        'name' => $allocation->tenantOutlet->name,
-                        'code' => $allocation->tenantOutlet->code,
-                    ] : null,
-                    'payment_method' => $allocation->transaction?->payment_method,
-                    'payment_status' => $allocation->transaction?->payment_status ?? $allocation->payment_status,
-                    'gross_sales_total' => $grossAfterPromo,
-                    'tenant_sales_total' => max(0, $grossAfterPromo),
-                    'tenant_base_sales_total' => max(0, $grossAfterPromo + $pricingDiscountTotal),
-                    'owner_product_markup_total' => (int) collect($details)->sum('owner_product_markup_total'),
-                    'owner_topping_markup_total' => (int) collect($details)->sum('owner_topping_markup_total'),
-                    'owner_markup_total' => $ownerMarkupTotal,
-                    'pricing_discount_total' => $pricingDiscountTotal,
-                    'delivered_at' => ReportTimezone::formatSourceIso8601($allocation->getRawOriginal('delivered_at')),
-                    'created_at' => ReportTimezone::formatSourceIso8601($allocation->transaction?->getRawOriginal('created_at')),
-                    'activity_at' => ReportTimezone::formatSourceIso8601($activityAtRaw),
-                    'activity_ts' => strtotime((string) $activityAtRaw),
-                    'date_key' => $dateKey,
-                    'date_label' => $dateKey ? ReportTimezone::formatSourceDateLabel($dateKey, 'd M Y') : null,
-                    'month_key' => $dateKey ? substr($dateKey, 0, 7) : null,
-                    'month_label' => $dateKey ? Carbon::createFromFormat('Y-m-d', $dateKey, ReportTimezone::timezone())->translatedFormat('F Y') : null,
-                    'details' => $details,
+                    'id' => $detail?->id ?? $item->transaction_detail_id,
+                    'product_title' => $detail?->product?->title ?? 'Produk terhapus',
+                    'qty' => $remainingQty,
+                    'customer_unit_price' => $customerUnitPrice,
+                    'line_total' => $customerUnitPrice * $remainingQty,
+                    'tenant_base_unit_price' => $tenantBaseUnitPrice,
+                    'tenant_net_total' => $tenantNetTotal,
+                    'owner_markup_unit_price' => $ownerMarkupUnitPrice,
+                    'owner_product_markup_total' => $ownerProductMarkupTotal,
+                    'owner_topping_markup_total' => $ownerToppingMarkupTotal,
+                    'owner_net_total' => $ownerNetTotal,
+                    'discount_total' => (int) ($item->discount_total ?? 0),
+                    'notes' => $detail?->notes,
+                    'modifiers' => $modifierRows->all(),
                 ];
-            })
+            })->values()->all();
+
+            return [
+                'id' => 'allocation-'.$allocation->id,
+                'entry_type' => 'allocation',
+                'entry_label' => 'Masuk Saldo',
+                'allocation_number' => $allocation->allocation_number,
+                'invoice' => $allocation->transaction?->invoice ?? $allocation->allocation_number,
+                'customer_name' => $allocation->transaction?->customer?->name ?? 'Pelanggan umum',
+                'cashier_name' => $allocation->transaction?->cashier?->name ?? '-',
+                'tenant_outlet' => $allocation->tenantOutlet ? [
+                    'id' => $allocation->tenantOutlet->id,
+                    'name' => $allocation->tenantOutlet->name,
+                    'code' => $allocation->tenantOutlet->code,
+                ] : null,
+                'payment_method' => $allocation->transaction?->payment_method,
+                'payment_status' => $allocation->transaction?->payment_status ?? $allocation->payment_status,
+                'gross_sales_total' => $grossAfterPromo,
+                'tenant_sales_total' => max(0, $grossAfterPromo),
+                'tenant_base_sales_total' => max(0, $grossAfterPromo + $pricingDiscountTotal),
+                'owner_product_markup_total' => (int) collect($details)->sum('owner_product_markup_total'),
+                'owner_topping_markup_total' => (int) collect($details)->sum('owner_topping_markup_total'),
+                'owner_markup_total' => $ownerMarkupTotal,
+                'pricing_discount_total' => $pricingDiscountTotal,
+                'delivered_at' => ReportTimezone::formatSourceIso8601($allocation->getRawOriginal('delivered_at')),
+                'created_at' => ReportTimezone::formatSourceIso8601($allocation->transaction?->getRawOriginal('created_at')),
+                'activity_at' => ReportTimezone::formatSourceIso8601($activityAtRaw),
+                'activity_ts' => strtotime((string) $activityAtRaw),
+                'date_key' => $dateKey,
+                'date_label' => $dateKey ? ReportTimezone::formatSourceDateLabel($dateKey, 'd M Y') : null,
+                'month_key' => $dateKey ? substr($dateKey, 0, 7) : null,
+                'month_label' => $dateKey ? Carbon::createFromFormat('Y-m-d', $dateKey, ReportTimezone::timezone())->translatedFormat('F Y') : null,
+                'details' => $details,
+            ];
+        })
             ->when(($filters['entry_type'] ?? '') === 'sales_return', fn (Collection $rows) => $rows->filter(fn (array $row) => false))
             ->values();
 
