@@ -9,6 +9,7 @@ use App\Models\Outlet;
 use App\Models\Product;
 use App\Models\ProductKitchenStationMapping;
 use App\Models\ProductOutletStock;
+use App\Models\ProductRenameRequest;
 use App\Services\AuditLogService;
 use App\Services\ImageUploadService;
 use App\Services\ModifierMarkupService;
@@ -931,7 +932,7 @@ class ProductController extends Controller
 
         // get categories
         $categories = $this->categoryOptionsQuery($request)->get(['id', 'name', 'tenant_outlet_id']);
-        $product->load(['outletStocks.outlet', 'modifierOptions', 'tenantOutlet:id,name,code']);
+        $product->load(['outletStocks.outlet', 'modifierOptions', 'tenantOutlet:id,name,code', 'renameRequests']);
         $productPayload = $product->toArray();
 
         if ($request->user()?->isKitchenWorkspace() && ! ($request->user()?->can('products-pricing-update') ?? false)) {
@@ -964,8 +965,13 @@ class ProductController extends Controller
             })
             ->values();
 
+        $pendingRename = $product->renameRequests?->firstWhere('status', ProductRenameRequest::STATUS_PENDING);
+
         return Inertia::render('Dashboard/Products/Edit', [
             'product' => $productPayload,
+            'pendingRename' => $pendingRename
+                ? $pendingRename->only(['id', 'old_title', 'requested_title', 'created_at'])
+                : null,
             'categories' => $categories,
             'tenantOutlets' => $request->user()?->isKitchenWorkspace()
                 ? []
@@ -1359,6 +1365,28 @@ class ProductController extends Controller
                 : $product->penalty_status,
         ];
 
+        // Produk tenant: ganti nama menjadi permintaan review owner (produk tetap
+        // approved + nama lama selama review). Perubahan harga, gambar, topping,
+        // kategori, dsb. tetap langsung efektif tanpa review.
+        $isTenantProduct = (int) ($attributes['tenant_outlet_id'] ?? 0) > 0;
+        $canSelfApproveTitle = ($request->user()?->can('products-review')) ?? false;
+        $submittedTitle = trim((string) ($validated['title'] ?? ''));
+        $currentTitle = trim((string) ($product->title ?? ''));
+        $titleChanged = $isTenantProduct && $submittedTitle !== $currentTitle;
+        $needsNameReview = $titleChanged && ! $canSelfApproveTitle;
+
+        if ($needsNameReview) {
+            // Nama baru TIDAK diterapkan ke produk selama review; produk tetap
+            // memakai nama lama dan tetap approved sehingga tidak offline.
+            $attributes['title'] = $product->title;
+            $this->syncPendingRenameRequest(
+                product: $product,
+                currentTitle: $currentTitle,
+                requestedTitle: $submittedTitle,
+                requesterId: $request->user()?->id,
+            );
+        }
+
         // check image update
         if ($request->hasFile('image') && $canManageProductImage) {
 
@@ -1545,8 +1573,36 @@ class ProductController extends Controller
             ? (clone $query)->where('title', 'like', '%'.trim((string) $request->input('search')).'%')->paginate(20)
             : $query->paginate(20);
 
+        $renameQuery = ProductRenameRequest::query()
+            ->pending()
+            ->with([
+                'product:id,title,description,image,sku,buy_price,sell_price,stock,category_id,tenant_outlet_id',
+                'product.category:id,name',
+                'product.tenantOutlet:id,name,code',
+                'requester:id,name',
+            ])
+            ->when(
+                $isTenantWorkspace,
+                fn (Builder $builder) => $builder->whereHas(
+                    'product',
+                    fn (Builder $productBuilder) => $productBuilder->where('tenant_outlet_id', $outlet->id)
+                )
+            )
+            ->orderByDesc('created_at');
+
+        $search = trim((string) $request->input('search', ''));
+        $renames = $search !== ''
+            ? (clone $renameQuery)
+                ->where(function (Builder $builder) use ($search) {
+                    $builder->where('requested_title', 'like', '%'.$search.'%')
+                        ->orWhere('old_title', 'like', '%'.$search.'%');
+                })
+                ->paginate(20)
+            : $renameQuery->paginate(20);
+
         return Inertia::render('Dashboard/Products/Review', [
             'pendingProducts' => $pending,
+            'pendingRenames' => $renames,
             'filters' => [
                 'search' => (string) $request->input('search', ''),
             ],
@@ -1611,11 +1667,106 @@ class ProductController extends Controller
         return back()->with('success', 'Produk ditolak dan tidak akan tampil di publik.');
     }
 
+    public function approveRename(Request $request, ProductRenameRequest $rename)
+    {
+        abort_unless($rename->status === ProductRenameRequest::STATUS_PENDING, 409);
+
+        $product = $this->resolveWorkspaceProduct($rename->product, $request);
+        $before = [
+            'old_title' => $rename->old_title,
+            'requested_title' => $rename->requested_title,
+        ];
+
+        $rename->update([
+            'status' => ProductRenameRequest::STATUS_APPROVED,
+            'reviewed_by' => $request->user()?->id,
+            'reviewed_at' => now(),
+            'review_note' => null,
+        ]);
+        $product->update(['title' => $rename->requested_title]);
+
+        $this->auditLogService->log(
+            event: 'product.rename_approved',
+            module: 'products',
+            auditable: $product,
+            description: "Ganti nama produk disetujui: \"{$before['old_title']}\" menjadi \"{$rename->requested_title}\".",
+            before: $before,
+            after: [
+                'title' => $product->title,
+                'status' => ProductRenameRequest::STATUS_APPROVED,
+            ]
+        );
+
+        return back()->with('success', 'Ganti nama produk disetujui dan nama baru kini aktif.');
+    }
+
+    public function rejectRename(Request $request, ProductRenameRequest $rename)
+    {
+        abort_unless($rename->status === ProductRenameRequest::STATUS_PENDING, 409);
+
+        $product = $this->resolveWorkspaceProduct($rename->product, $request);
+        $validated = $request->validate([
+            'review_note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $rename->update([
+            'status' => ProductRenameRequest::STATUS_REJECTED,
+            'reviewed_by' => $request->user()?->id,
+            'reviewed_at' => now(),
+            'review_note' => trim((string) ($validated['review_note'] ?? '')),
+        ]);
+
+        $this->auditLogService->log(
+            event: 'product.rename_rejected',
+            module: 'products',
+            auditable: $product,
+            description: "Ganti nama produk ditolak, nama tetap \"{$rename->product->title}\".",
+            before: [
+                'old_title' => $rename->old_title,
+                'requested_title' => $rename->requested_title,
+            ],
+            after: [
+                'title' => $rename->product->title,
+                'status' => ProductRenameRequest::STATUS_REJECTED,
+            ]
+        );
+
+        return back()->with('success', 'Ganti nama produk ditolak; produk tetap memakai nama lama.');
+    }
+
     /**
      * Produk yang ditolak otomatis kembali ke antrian review (pending) saat
      * tenant memperbaiki dan menyimpan produknya, sehingga owner dapat
      * mereview ulang tanpa harus membuat produk baru.
      */
+    private function syncPendingRenameRequest(Product $product, string $currentTitle, string $requestedTitle, ?int $requesterId): void
+    {
+        $pending = $product->renameRequests()->pending()->latest('id')->first();
+
+        if ($pending) {
+            $pending->update(['requested_title' => $requestedTitle]);
+        } else {
+            $product->renameRequests()->create([
+                'old_title' => $currentTitle,
+                'requested_title' => $requestedTitle,
+                'status' => ProductRenameRequest::STATUS_PENDING,
+                'requested_by' => $requesterId,
+            ]);
+        }
+
+        $this->auditLogService->log(
+            event: 'product.rename_requested',
+            module: 'products',
+            auditable: $product,
+            description: "Permintaan ganti nama produk diajukan: \"{$currentTitle}\" menjadi \"{$requestedTitle}\".",
+            after: [
+                'old_title' => $currentTitle,
+                'requested_title' => $requestedTitle,
+                'status' => ProductRenameRequest::STATUS_PENDING,
+            ]
+        );
+    }
+
     private function resubmitRejectedProduct(Product $product, Request $request): void
     {
         if ($product->fresh()?->publish_status !== 'rejected') {

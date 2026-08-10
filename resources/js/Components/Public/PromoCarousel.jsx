@@ -123,6 +123,7 @@ function normalizeSlide(slide) {
             image: slide.hero_image || slide.highlight_products?.[0]?.image || null,
             theme: {
                 key: slide.theme?.key || "rose",
+                background: slide.theme?.background || null,
             },
             originalPrice: pricing.original_price ?? null,
             promoPrice,
@@ -396,7 +397,7 @@ export default function PromoCarousel({ outlet }) {
                                 return (
                                     <div
                                         key={slide.id}
-                                        className="relative flex h-full w-full shrink-0 items-center overflow-hidden bg-slate-950"
+                                        className="relative flex h-full w-full shrink-0 items-end overflow-hidden bg-slate-950"
                                     >
                                         {/* Background image full-bleed */}
                                         {slide.image ? (
@@ -408,19 +409,21 @@ export default function PromoCarousel({ outlet }) {
                                                 imgClassName="h-full w-full object-cover"
                                             />
                                         ) : null}
-                                        {/* Gradient theme dari kiri, buram ke kanan utk teks */}
-                                        <div
-                                            className="absolute inset-0 opacity-90"
-                                            style={{ background: slide.theme?.background }}
-                                        />
-                                        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/75 to-slate-950/40" />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/30 to-transparent" />
+                                        {/* Theme tint tipis agar gambar tetap terlihat */}
+                                        {slide.theme?.background ? (
+                                            <div
+                                                className="absolute inset-0 opacity-35"
+                                                style={{ background: slide.theme.background }}
+                                            />
+                                        ) : null}
+                                        {/* Scrim bawah utk keterbacaan teks */}
+                                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/45 to-transparent" />
                                         {/* Dekorasi soft */}
                                         <div className="pointer-events-none absolute -right-16 -top-16 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
                                         <div className="pointer-events-none absolute -bottom-20 -left-10 h-80 w-80 rounded-full bg-black/25 blur-3xl" />
 
                                         {/* Konten */}
-                                        <div className="relative z-10 mx-auto w-full max-w-4xl px-5 py-6 sm:px-8 sm:py-10">
+                                        <div className="relative z-10 mx-auto flex h-full w-full max-w-4xl flex-col justify-end px-5 pb-8 sm:px-8 sm:pb-12">
                                             {/* Pill + discount */}
                                             <div className="flex flex-wrap items-end gap-3">
                                                 <span className={`inline-flex items-center rounded-full px-4 py-1.5 text-xs font-extrabold uppercase tracking-[0.16em] text-white ring-2 ring-white/30 ${theme.gradient}`}>

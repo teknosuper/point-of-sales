@@ -226,6 +226,7 @@ function ModifierGroupNameInput({ value, onCommit }) {
 export default function Edit({
     categories,
     product,
+    pendingRename = null,
     tenantOutlets = [],
     autoKitchenStations = [],
     outletStocks = [],
@@ -848,6 +849,19 @@ export default function Edit({
                                     placeholder="Nama produk"
                                     disabled={!canManageCatalog && !canManageTenantBasicFields}
                                 />
+                                {pendingRename ? (
+                                    <p className="-mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                                        Permintaan ganti nama ini sedang menunggu review owner. Produk tetap tampil dengan nama &ldquo;{pendingRename.old_title}&rdquo; sampai disetujui. Gunakan form ini untuk mengubah permintaan nama atau batalkan dengan mengembalikan nama ke nilai semula.
+                                    </p>
+                                ) : product.tenant_outlet_id && data.title !== product.title ? (
+                                    <p className="-mt-3 rounded-lg bg-warning-50 px-3 py-2 text-xs font-medium text-warning-700 ring-1 ring-warning-200 dark:bg-warning-950/30 dark:text-warning-300 dark:ring-warning-800/50">
+                                        Ganti nama produk tenant akan dikirim sebagai permintaan review ke owner. Produk tetap tampil dengan nama lama sampai disetujui. Perubahan harga/gambar/topping tetap berlaku langsung.
+                                    </p>
+                                ) : product.tenant_outlet_id ? (
+                                    <p className="-mt-3 text-xs text-slate-500 dark:text-slate-400">
+                                        Perubahan selain nama produk (harga, gambar, topping, &amp; lainnya) berlaku langsung tanpa review.
+                                    </p>
+                                ) : null}
                                 <div className="md:col-span-2">
                                     <Textarea
                                         label="Deskripsi"

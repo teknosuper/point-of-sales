@@ -132,6 +132,11 @@ class Product extends Model
         return $this->hasMany(Review::class)->orderByDesc('reviewed_at')->orderByDesc('id');
     }
 
+    public function renameRequests()
+    {
+        return $this->hasMany(ProductRenameRequest::class)->orderByDesc('id');
+    }
+
     public function modifierOptions()
     {
         return $this->hasMany(ProductModifierOption::class)
