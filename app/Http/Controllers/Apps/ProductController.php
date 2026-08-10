@@ -1734,6 +1734,29 @@ class ProductController extends Controller
         return back()->with('success', 'Ganti nama produk ditolak; produk tetap memakai nama lama.');
     }
 
+    public function cancelRename(Request $request, ProductRenameRequest $rename)
+    {
+        $product = $this->resolveWorkspaceProduct($rename->product, $request);
+        abort_unless($rename->status === ProductRenameRequest::STATUS_PENDING, 409);
+
+        $canCancel = ($request->user()?->id ?? null) === (int) $rename->requested_by
+            || ($request->user()?->can('products-review') ?? false);
+        abort_unless($canCancel, 403);
+
+        $oldTitle = $rename->old_title;
+        $requestedTitle = $rename->requested_title;
+        $rename->delete();
+
+        $this->auditLogService->log(
+            event: 'product.rename_request_cancelled',
+            module: 'products',
+            auditable: $product,
+            description: "Permintaan ganti nama \"{$requestedTitle}\" dibatalkan; produk tetap memakai nama \"{$oldTitle}\".",
+        );
+
+        return back()->with('success', 'Permintaan ganti nama dibatalkan.');
+    }
+
     /**
      * Produk yang ditolak otomatis kembali ke antrian review (pending) saat
      * tenant memperbaiki dan menyimpan produknya, sehingga owner dapat

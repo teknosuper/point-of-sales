@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
-import { Head, useForm, usePage, Link } from "@inertiajs/react";
+import { Head, useForm, usePage, router, Link } from "@inertiajs/react";
 import Input from "@/Components/Dashboard/Input";
 import Textarea from "@/Components/Dashboard/TextArea";
 import InputSelect from "@/Components/Dashboard/InputSelect";
@@ -21,6 +21,7 @@ import {
     IconStar,
 } from "@/Utils/icons";
 import { useAuthorization } from "@/Utils/authorization";
+import Swal from "sweetalert2";
 import { getProductImageUrl } from "@/Utils/imageUrl";
 import {
     IMAGE_UPLOAD_ACCEPT,
@@ -581,6 +582,25 @@ export default function Edit({
         });
     };
 
+    const cancelPendingRename = (renameId) => {
+        Swal.fire({
+            title: "Batalkan permintaan ganti nama?",
+            text: "Permintaan akan dihapus dan produk tetap memakai nama saat ini.",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Ya, Batalkan",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#d97706",
+            reverseButtons: true,
+        }).then((result) => {
+            if (!result.isConfirmed) return;
+            router.delete(route("products.rename.cancel", renameId), {
+                preserveScroll: true,
+                onSuccess: () => toast.success("Permintaan ganti nama dibatalkan"),
+            });
+        });
+    };
+
     const updateOutletStockRow = (index, field, value) => {
         setStockData(
             "outlet_stocks",
@@ -850,9 +870,18 @@ export default function Edit({
                                     disabled={!canManageCatalog && !canManageTenantBasicFields}
                                 />
                                 {pendingRename ? (
-                                    <p className="-mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
-                                        Permintaan ganti nama ini sedang menunggu review owner. Produk tetap tampil dengan nama &ldquo;{pendingRename.old_title}&rdquo; sampai disetujui. Gunakan form ini untuk mengubah permintaan nama atau batalkan dengan mengembalikan nama ke nilai semula.
-                                    </p>
+                                    <div className="-mt-3 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200 sm:flex-row sm:items-center sm:justify-between">
+                                        <p>
+                                            Permintaan ganti nama ini sedang menunggu review owner. Produk tetap tampil dengan nama &ldquo;{pendingRename.old_title}&rdquo; sampai disetujui.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => cancelPendingRename(pendingRename.id)}
+                                            className="shrink-0 rounded-lg bg-amber-200 px-2.5 py-1.5 text-[11px] font-bold text-amber-900 transition hover:bg-amber-300 dark:bg-amber-900/60 dark:text-amber-100"
+                                        >
+                                            Batalkan Permintaan
+                                        </button>
+                                    </div>
                                 ) : product.tenant_outlet_id && data.title !== product.title ? (
                                     <p className="-mt-3 rounded-lg bg-warning-50 px-3 py-2 text-xs font-medium text-warning-700 ring-1 ring-warning-200 dark:bg-warning-950/30 dark:text-warning-300 dark:ring-warning-800/50">
                                         Ganti nama produk tenant akan dikirim sebagai permintaan review ke owner. Produk tetap tampil dengan nama lama sampai disetujui. Perubahan harga/gambar/topping tetap berlaku langsung.
