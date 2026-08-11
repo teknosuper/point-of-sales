@@ -56,6 +56,14 @@ class CashierSettlementController extends Controller
             'payment_method' => (string) $request->input('payment_method', ''),
         ];
 
+        $requestFilters = [
+            'q' => trim((string) $request->input('req_q', '')),
+            'outlet_id' => (string) $request->input('req_outlet_id', ''),
+            'status' => (string) $request->input('req_status', ''),
+            'date_from' => (string) $request->input('req_date_from', ''),
+            'date_to' => (string) $request->input('req_date_to', ''),
+        ];
+
         $canApprove = $this->canApprove($user);
 
         $tenantSettlementOutletIds = $isTenantRequestWorkspace
@@ -75,6 +83,19 @@ class CashierSettlementController extends Controller
             ])
             ->whereIn('outlet_id', $requestOutletIds->all())
             ->when($this->shouldScopeSettlementRequestsToUser($user, $isTenantRequestWorkspace), fn (Builder $builder) => $builder->where('cashier_id', $user->id))
+            ->when($requestFilters['q'] !== '', function (Builder $builder) use ($requestFilters) {
+                $builder->where(function (Builder $nested) use ($requestFilters) {
+                    $nested
+                        ->where('request_number', 'like', '%'.$requestFilters['q'].'%')
+                        ->orWhere('recipient_name', 'like', '%'.$requestFilters['q'].'%')
+                        ->orWhere('requested_notes', 'like', '%'.$requestFilters['q'].'%')
+                        ->orWhereHas('cashier', fn (Builder $cashier) => $cashier->where('name', 'like', '%'.$requestFilters['q'].'%'));
+                });
+            })
+            ->when($requestFilters['outlet_id'] !== '', fn (Builder $builder) => $builder->where('outlet_id', (int) $requestFilters['outlet_id']))
+            ->when($requestFilters['status'] !== '', fn (Builder $builder) => $builder->where('status', $requestFilters['status']))
+            ->when($requestFilters['date_from'] !== '', fn (Builder $builder) => $builder->whereDate('business_date', '>=', $requestFilters['date_from']))
+            ->when($requestFilters['date_to'] !== '', fn (Builder $builder) => $builder->whereDate('business_date', '<=', $requestFilters['date_to']))
             ->latest('created_at');
 
         $requests = (clone $query)
@@ -98,6 +119,16 @@ class CashierSettlementController extends Controller
                 ->map(fn (User $cashier) => ['id' => $cashier->id, 'name' => $cashier->name])
                 ->values()
             : collect([['id' => $user->id, 'name' => $user->name]]);
+
+        $outletOptionIds = $isTenantRequestWorkspace
+            ? $tenantSettlementOutletIds
+            : $visibleOutletIds;
+        $outletOptions = Outlet::query()
+            ->whereIn('id', $outletOptionIds->all())
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn (Outlet $outlet) => ['id' => $outlet->id, 'name' => $outlet->name])
+            ->values();
 
         $shiftOptions = CashierShift::query()
             ->where('outlet_id', $outlet->id)
@@ -128,9 +159,11 @@ class CashierSettlementController extends Controller
 
         return Inertia::render('Dashboard/CashierSettlements/Index', [
             'walletFilters' => $walletFilters,
+            'requestFilters' => $requestFilters,
             'summary' => $summary,
             'requests' => $requests,
             'cashiers' => $cashierOptions,
+            'outlets' => $outletOptions,
             'shiftOptions' => $shiftOptions,
             'recipientOptions' => $recipientOptions,
             'defaultRecipientId' => $defaultRecipientId > 0 ? $defaultRecipientId : null,

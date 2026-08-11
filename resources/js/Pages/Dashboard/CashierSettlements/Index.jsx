@@ -14,6 +14,8 @@ import {
     IconClockHour4,
     IconFileExport,
     IconInfoCircle,
+    IconLayoutDashboard,
+    IconPencilCheck,
     IconPrinter,
     IconReceipt2,
     IconSearch,
@@ -125,9 +127,11 @@ function SummaryCard({ title, value, description, icon, tone = "slate" }) {
 
 export default function Index({
     walletFilters = {},
+    requestFilters = {},
     summary = {},
     requests = {},
     cashiers = [],
+    outlets = [],
     shiftOptions = [],
     recipientOptions = [],
     defaultRecipientId = null,
@@ -181,16 +185,16 @@ export default function Index({
                   : "";
 
         if (!querySource) {
-            return isTenantRequestMode ? "balance" : "requests";
+            return isTenantRequestMode ? "balance" : "request";
         }
 
         const requestedTab = new URLSearchParams(querySource).get("tab");
 
-        if (requestedTab && ["balance", "request", "transactions"].includes(requestedTab)) {
+        if (requestedTab && ["balance", "request", "transactions", "overview"].includes(requestedTab)) {
             return requestedTab;
         }
 
-        return isTenantRequestMode ? "balance" : "requests";
+        return isTenantRequestMode ? "balance" : "request";
     }, [isTenantRequestMode, page.url]);
     const [filterData, setFilterData] = useState({
         ...defaultFilters,
@@ -200,6 +204,13 @@ export default function Index({
         date_to: walletFilters?.date_to ?? "",
         entry_type: walletFilters?.entry_type ?? "",
         payment_method: walletFilters?.payment_method ?? "",
+    });
+    const [requestFilterData, setRequestFilterData] = useState({
+        q: requestFilters?.q ?? "",
+        status: requestFilters?.status ?? "",
+        outlet_id: requestFilters?.outlet_id ?? "",
+        date_from: requestFilters?.date_from ?? "",
+        date_to: requestFilters?.date_to ?? "",
     });
     const [createData, setCreateData] = useState({
         cashier_shift_id: "",
@@ -259,6 +270,16 @@ export default function Index({
             payment_method: walletFilters?.payment_method ?? "",
         });
     }, [walletFilters]);
+
+    useEffect(() => {
+        setRequestFilterData({
+            q: requestFilters?.q ?? "",
+            status: requestFilters?.status ?? "",
+            outlet_id: requestFilters?.outlet_id ?? "",
+            date_from: requestFilters?.date_from ?? "",
+            date_to: requestFilters?.date_to ?? "",
+        });
+    }, [requestFilters]);
 
     const rows = requests?.data ?? [];
     const links = requests?.links ?? [];
@@ -357,6 +378,37 @@ export default function Index({
             replace: true,
         });
         setShowWalletFilterModal(false);
+    };
+
+    const applyRequestFilters = (event) => {
+        event.preventDefault();
+        router.get(route("cashier-settlements.index"), {
+            tab: "request",
+            req_q: requestFilterData.q,
+            req_status: requestFilterData.status,
+            req_outlet_id: requestFilterData.outlet_id,
+            req_date_from: requestFilterData.date_from,
+            req_date_to: requestFilterData.date_to,
+            requests_page: 1,
+        }, {
+            preserveScroll: true,
+            preserveState: false,
+        });
+    };
+
+    const resetRequestFilters = () => {
+        setRequestFilterData({
+            q: "",
+            status: "",
+            outlet_id: "",
+            date_from: "",
+            date_to: "",
+        });
+        router.get(route("cashier-settlements.index"), { tab: "request" }, {
+            preserveScroll: true,
+            preserveState: false,
+            replace: true,
+        });
     };
 
     const selectWalletMonth = (monthKey) => {
@@ -733,7 +785,7 @@ export default function Index({
                             <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
                                 {isTenantRequestMode
                                     ? "Angka saldo di sini adalah hak tenant yang bisa diajukan"
-                                    : "Angka pending/disetujui di sini adalah agregat request withdraw tenant"}
+                                    : "Tab Ringkasan berisi angka penjualan & hak tenant; tab Riwayat Pengajuan berisi daftar request untuk divalidasi"}
                             </p>
                         </div>
                     </div>
@@ -798,67 +850,141 @@ export default function Index({
                             })}
                         </div>
                     </div>
+                ) : (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="grid gap-2 md:grid-cols-2">
+                            {[
+                                {
+                                    key: "overview",
+                                    label: "Ringkasan",
+                                    description: "Ringkasan penjualan, hak tenant, dan aliran pencairan.",
+                                    icon: <IconLayoutDashboard size={16} />,
+                                },
+                                {
+                                    key: "request",
+                                    label: "Riwayat Pengajuan",
+                                    description: "Daftar pengajuan pencairan dengan filter dan pagination.",
+                                    icon: <IconFileExport size={16} />,
+                                },
+                            ].map((tab) => {
+                                const isActive = activeTab === tab.key;
+
+                                const href = route("cashier-settlements.index", {
+                                    tab: tab.key,
+                                });
+
+                                return (
+                                    <Link
+                                        key={tab.key}
+                                        href={href}
+                                        preserveScroll
+                                        preserveState
+                                        className={`rounded-2xl border px-4 py-4 text-left transition ${
+                                            isActive
+                                                ? "border-primary-200 bg-primary-50 text-primary-900 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-100"
+                                                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2 text-sm font-semibold">
+                                            {tab.icon}
+                                            {tab.label}
+                                        </div>
+                                        <p className="mt-2 text-xs opacity-75">{tab.description}</p>
+                                    </Link>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === "request" ? (
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <SummaryCard title="Menunggu Approval" value={String(summary?.pending_count ?? 0)} description="Pengajuan yang belum divalidasi" icon={<IconClockHour4 size={20} />} tone="amber" />
+                        <SummaryCard title="Disetujui" value={String(summary?.approved_count ?? 0)} description="Pengajuan yang sudah dibayar" icon={<IconCheck size={20} />} tone="emerald" />
+                        <SummaryCard title="Total Pending" value={formatCurrency(summary?.requested_total ?? 0)} description="Nominal pengajuan yang menunggu approval" icon={<IconReceipt2 size={20} />} tone="blue" />
+                        <SummaryCard title="Total Disetujui" value={formatCurrency(summary?.approved_total ?? 0)} description="Nominal sudah dibayar" icon={<IconCashBanknote size={20} />} tone="slate" />
+                    </div>
                 ) : null}
 
-                {(!isTenantRequestMode || activeTab === "request") ? (
-                    <>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                Melihat sebagai: {auth?.user?.name || "-"}
-                            </span>
-                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                Outlet aktif: {activeOutlet?.name || "-"}
-                            </span>
-                            <span className="rounded-full bg-primary-100 px-3 py-1 text-xs font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
-                                Scope: {isTenantRequestMode ? "Tenant aktif saja" : "Agregat semua tenant yang terlihat owner"}
-                            </span>
-                        </div>
-                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                            <SummaryCard title="Menunggu Approval" value={String(summary?.pending_count ?? 0)} description="Pengajuan yang belum divalidasi" icon={<IconClockHour4 size={20} />} tone="amber" />
-                            <SummaryCard title="Disetujui" value={String(summary?.approved_count ?? 0)} description="Pengajuan yang sudah dibayar" icon={<IconCheck size={20} />} tone="emerald" />
-                            <SummaryCard title="Total Pending" value={formatCurrency(summary?.requested_total ?? 0)} description="Nominal pengajuan yang menunggu approval" icon={<IconReceipt2 size={20} />} tone="blue" />
-                            <SummaryCard title="Total Disetujui" value={formatCurrency(summary?.approved_total ?? 0)} description="Nominal sudah dibayar" icon={<IconCashBanknote size={20} />} tone="slate" />
-                        </div>
-                        {!isTenantRequestMode && ownerOverview ? (
+                {!isTenantRequestMode && activeTab === "overview" && ownerOverview ? (
+                    <div className="space-y-6">
+                        <div>
+                            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Penjualan & Hak Tenant
+                            </h3>
                             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                                 <SummaryCard title="Total Omzet" value={formatCurrency((safeOwnerOverview.completed_gross_sales_total || 0) + (safeOwnerOverview.pending_kitchen_gross_sales_total || 0))} description={`Selesai ${formatCurrency(safeOwnerOverview.completed_gross_sales_total)} • Belum selesai ${formatCurrency(safeOwnerOverview.pending_kitchen_gross_sales_total)}`} icon={<IconCashBanknote size={20} />} tone="slate" />
-                                <SummaryCard title="Total Transaksi" value={String(safeOwnerOverview.total_transactions_count)} description={`Semua transaksi tenant & outlet utama • Selesai ${safeOwnerOverview.completed_transactions_count} • Belum selesai ${safeOwnerOverview.pending_kitchen_transactions_count} • Tanpa alokasi ${safeOwnerOverview.unallocated_transactions_count} • Retur ${safeOwnerOverview.returns_count}`} icon={<IconReceipt2 size={20} />} tone="blue" />
+                                <SummaryCard title="Total Transaksi" value={String(safeOwnerOverview.total_transactions_count)} description={`Selesai ${safeOwnerOverview.completed_transactions_count} • Belum selesai ${safeOwnerOverview.pending_kitchen_transactions_count}`} icon={<IconReceipt2 size={20} />} tone="blue" />
                                 <SummaryCard title="Markup Owner" value={formatCurrency(safeOwnerOverview.owner_markup_total)} description="Hak owner dari markup produk dan topping tenant" icon={<IconUserDollar size={20} />} tone="emerald" />
-                                <button
-                                    type="button"
-                                    onClick={openReturnsModal}
-                                    className="text-left"
-                                >
-                                    <SummaryCard title="Retur" value={String(safeOwnerOverview.returns_count)} description="Retur yang mengurangi penghasilan tenant • Klik untuk detail" icon={<IconX size={20} />} tone="rose" />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={openUnallocatedModal}
-                                    className="text-left"
-                                >
-                                    <SummaryCard title="Tanpa Alokasi" value={String(safeOwnerOverview.unallocated_transactions_count)} description="Transaksi tanpa alokasi tenant • Klik untuk detail" icon={<IconInfoCircle size={20} />} tone="amber" />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={repairUnallocated}
-                                    disabled={repairingUnallocated}
-                                    className="text-left"
-                                >
-                                    <SummaryCard title="Perbaiki Alokasi" value={repairingUnallocated ? "..." : "Scan"} description={repairingUnallocated ? "Memperbaiki alokasi tenant..." : "Perbaiki transaksi tanpa alokasi tenant"} icon={<IconCheck size={20} />} tone="emerald" />
-                                </button>
                                 <button
                                     type="button"
                                     onClick={() => setTenantBreakdownModalOpen(true)}
                                     className="text-left"
                                 >
-                                    <SummaryCard title="Hak Tenant Siap Withdraw" value={formatCurrency(safeOwnerOverview.tenant_rights_total)} description="Hak bersih tenant dari transaksi delivered setelah split tenant dan retur. Klik untuk breakdown per tenant." icon={<IconShieldCheck size={20} />} tone="blue" />
+                                    <SummaryCard title="Hak Tenant Siap Withdraw" value={formatCurrency(safeOwnerOverview.tenant_rights_total)} description="Hak bersih tenant dari transaksi selesai (setelah markup owner & retur). Klik untuk rincian per tenant." icon={<IconShieldCheck size={20} />} tone="blue" />
                                 </button>
-                                <SummaryCard title="Seharusnya Di-Withdraw" value={formatCurrency(safeOwnerOverview.should_withdraw_total)} description="Total hak tenant kumulatif yang layak dicairkan" icon={<IconChevronUp size={20} />} tone="slate" />
-                                <SummaryCard title="Sudah Di-Withdraw" value={formatCurrency(safeOwnerOverview.withdrawn_total)} description="Pengajuan tenant yang sudah disetujui dan dibayar" icon={<IconCheck size={20} />} tone="emerald" />
-                                <SummaryCard title="Belum Di-Withdraw" value={formatCurrency(safeOwnerOverview.unwithdrawn_total)} description={`Sisa hak tenant yang belum terbayar • Pending approval ${formatCurrency(safeOwnerOverview.pending_withdraw_total)}`} icon={<IconX size={20} />} tone="rose" />
                             </div>
-                        ) : null}
-                    </>
+                        </div>
+
+                        <div>
+                            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Aliran Pencairan Tenant
+                            </h3>
+                            <div className="grid gap-4 md:grid-cols-3">
+                                <SummaryCard title="Seharusnya Di-Withdraw" value={formatCurrency(safeOwnerOverview.should_withdraw_total)} description="Akumulasi hak tenant yang layak dicairkan" icon={<IconChevronUp size={20} />} tone="slate" />
+                                <SummaryCard title="Sudah Di-Withdraw" value={formatCurrency(safeOwnerOverview.withdrawn_total)} description="Pengajuan yang sudah disetujui dan dibayar ke tenant" icon={<IconCheck size={20} />} tone="emerald" />
+                                <SummaryCard title="Belum Di-Withdraw" value={formatCurrency(safeOwnerOverview.unwithdrawn_total)} description={`Sisa hak tenant yang belum dibayar • Pending approval ${formatCurrency(safeOwnerOverview.pending_withdraw_total)}`} icon={<IconX size={20} />} tone="rose" />
+                            </div>
+                        </div>
+
+                        <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Kualitas Data Alokasi
+                            </h3>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                Periksa transaksi yang belum tercatat alokasi atau mengurangi hak tenant.
+                            </p>
+                            <div className="mt-4 grid gap-3 md:grid-cols-3">
+                                <button
+                                    type="button"
+                                    onClick={openReturnsModal}
+                                    className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800"
+                                >
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-900 dark:text-white">Retur</p>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Transaksi retur yang mengurangi penghasilan tenant</p>
+                                    </div>
+                                    <span className="rounded-full bg-rose-50 px-3 py-1 text-sm font-bold text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{safeOwnerOverview.returns_count}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={openUnallocatedModal}
+                                    className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800"
+                                >
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-900 dark:text-white">Tanpa Alokasi</p>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Transaksi yang belum punya alokasi tenant</p>
+                                    </div>
+                                    <span className="rounded-full bg-amber-50 px-3 py-1 text-sm font-bold text-amber-600 dark:bg-amber-950/30 dark:text-amber-300">{safeOwnerOverview.unallocated_transactions_count}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={repairUnallocated}
+                                    disabled={repairingUnallocated}
+                                    className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800"
+                                >
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-900 dark:text-white">Perbaiki Alokasi</p>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{repairingUnallocated ? "Memperbaiki alokasi tenant..." : "Scan & perbaiki transaksi tanpa alokasi"}</p>
+                                    </div>
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-primary-100 px-3 py-1 text-xs font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+                                        <IconPencilCheck size={14} />
+                                        {repairingUnallocated ? "Memproses" : "Perbaiki"}
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 ) : null}
 
                 {isTenantRequestMode && wallet && activeTab === "balance" ? (
@@ -870,7 +996,7 @@ export default function Index({
                     </div>
                 ) : null}
 
-                {(!isTenantRequestMode || activeTab === "request") ? (
+                {activeTab === "request" ? (
                 <div className={`grid gap-6 ${canCreateRequest ? "xl:grid-cols-[0.95fr,1.05fr]" : "xl:grid-cols-[0.7fr,1.3fr]"}`}>
                     <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                         <div className="mb-4">
@@ -1183,7 +1309,7 @@ export default function Index({
                 </div>
                 ) : null}
 
-                {(!isTenantRequestMode || activeTab === "request") ? (
+                {activeTab === "request" ? (
                 <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
@@ -1199,6 +1325,98 @@ export default function Index({
                         </div>
                         {requests?.last_page > 1 ? <Pagination links={links} /> : null}
                     </div>
+
+                    <form
+                        onSubmit={applyRequestFilters}
+                        className="mb-5 grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/50 sm:grid-cols-2 lg:grid-cols-5"
+                    >
+                        <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Cari</label>
+                            <input
+                                type="text"
+                                value={requestFilterData.q}
+                                onChange={(event) =>
+                                    setRequestFilterData((prev) => ({ ...prev, q: event.target.value }))
+                                }
+                                placeholder="No. pengajuan / pengaju / catatan"
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Status</label>
+                            <select
+                                value={requestFilterData.status}
+                                onChange={(event) =>
+                                    setRequestFilterData((prev) => ({ ...prev, status: event.target.value }))
+                                }
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                            >
+                                <option value="">Semua status</option>
+                                <option value="pending">Menunggu Approval</option>
+                                <option value="approved">Disetujui</option>
+                                <option value="rejected">Ditolak</option>
+                                <option value="cancelled">Dibatalkan</option>
+                            </select>
+                        </div>
+                        {!isTenantRequestMode ? (
+                            <div>
+                                <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Outlet</label>
+                                <select
+                                    value={requestFilterData.outlet_id}
+                                    onChange={(event) =>
+                                        setRequestFilterData((prev) => ({ ...prev, outlet_id: event.target.value }))
+                                    }
+                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                                >
+                                    <option value="">Semua outlet</option>
+                                    {outlets.map((outlet) => (
+                                        <option key={outlet.id} value={String(outlet.id)}>
+                                            {outlet.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        ) : null}
+                        <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Dari Tanggal</label>
+                            <input
+                                type="date"
+                                value={requestFilterData.date_from}
+                                onChange={(event) =>
+                                    setRequestFilterData((prev) => ({ ...prev, date_from: event.target.value }))
+                                }
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Sampai Tanggal</label>
+                            <input
+                                type="date"
+                                value={requestFilterData.date_to}
+                                onChange={(event) =>
+                                    setRequestFilterData((prev) => ({ ...prev, date_to: event.target.value }))
+                                }
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                            />
+                        </div>
+                        <div className="flex flex-wrap items-end gap-2 sm:col-span-2 lg:col-span-5">
+                            <button
+                                type="submit"
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-700"
+                            >
+                                <IconSearch size={15} />
+                                Terapkan Filter
+                            </button>
+                            <button
+                                type="button"
+                                onClick={resetRequestFilters}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                                <IconX size={15} />
+                                Reset
+                            </button>
+                        </div>
+                    </form>
 
                     {rows.length > 0 ? (
                         <div className="overflow-x-auto">
