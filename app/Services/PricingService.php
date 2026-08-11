@@ -34,12 +34,12 @@ class PricingService
             now()->addSeconds(30),
             fn () => PricingRule::query()
                 ->with([
-                    'product:id,title,buy_price,sell_price,category_id',
-                    'category:id,name',
+                    'product:id,title,buy_price,sell_price,category_id,image',
+                    'category:id,name,image',
                     'outlet:id,name,code,outlet_type',
                     'qtyBreaks',
-                    'bundleItems.product:id,title,buy_price,sell_price,category_id',
-                    'buyGetItems.product:id,title,buy_price,sell_price,category_id',
+                    'bundleItems.product:id,title,buy_price,sell_price,category_id,image',
+                    'buyGetItems.product:id,title,buy_price,sell_price,category_id,image',
                 ])
                 ->where('is_active', true)
                 ->when(
