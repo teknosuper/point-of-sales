@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Apps;
 use App\Http\Controllers\Controller;
 use App\Models\KitchenStation;
 use App\Models\KitchenStationDevice;
+use App\Models\KitchenSoundConfig;
 use App\Models\KitchenTicket;
 use App\Models\KitchenTicketEvent;
 use App\Models\TransactionTenantAllocationItem;
@@ -58,6 +59,12 @@ class KitchenDisplayController extends Controller
                 'device_type' => $selectedDevice?->device_type ?? ($activeStation?->display_mode ?? 'screen'),
                 'interactive' => ($selectedDevice?->device_type ?? 'screen') !== 'printer',
             ],
+            'soundConfigs' => KitchenSoundConfig::all()
+                ->map(fn ($c) => [
+                    'event_type' => $c->event_type,
+                    'interval_seconds' => $c->interval_seconds,
+                    'is_enabled' => $c->is_enabled,
+                ]),
         ]);
     }
 
@@ -121,6 +128,12 @@ class KitchenDisplayController extends Controller
                 'device_type' => $selectedDevice?->device_type ?? $kitchenStation->display_mode,
                 'interactive' => ($selectedDevice?->device_type ?? 'screen') !== 'printer',
             ],
+            'soundConfigs' => KitchenSoundConfig::all()
+                ->map(fn ($c) => [
+                    'event_type' => $c->event_type,
+                    'interval_seconds' => $c->interval_seconds,
+                    'is_enabled' => $c->is_enabled,
+                ]),
         ]);
     }
 

@@ -19,6 +19,7 @@ class NotificationSound extends Model
         'is_active',
         'sort_order',
         'outlet_id',
+        'station_id',
     ];
 
     protected $casts = [
@@ -30,6 +31,11 @@ class NotificationSound extends Model
     public function outlet()
     {
         return $this->belongsTo(Outlet::class);
+    }
+
+    public function station()
+    {
+        return $this->belongsTo(KitchenStation::class, 'station_id');
     }
 
     // Sound types
@@ -62,6 +68,21 @@ class NotificationSound extends Model
     public function scopeOfType($query, string $type)
     {
         return $query->where('type', $type);
+    }
+
+    public function scopeForStation($query, int $stationId)
+    {
+        return $query->where('station_id', $stationId);
+    }
+
+    public function scopeForOutlet($query, int $outletId)
+    {
+        return $query->where('outlet_id', $outletId);
+    }
+
+    public function scopeGlobal($query)
+    {
+        return $query->whereNull('station_id')->whereNull('outlet_id');
     }
 
     public function getUrlAttribute(): string

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Apps;
 
 use App\Http\Controllers\Controller;
+use App\Models\KitchenStation;
 use App\Models\NotificationSound;
 use App\Models\Outlet;
 use App\Services\OutletResolver;
@@ -69,6 +70,16 @@ class NotificationSoundController extends Controller
                 ->get(['outlets.id', 'outlets.name', 'outlets.code', 'outlets.outlet_type']);
         }
 
+        $stations = collect();
+        if ($activeOutlet) {
+            $stations = KitchenStation::query()
+                ->where('outlet_id', $activeOutlet->id)
+                ->where('is_active', true)
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get(['id', 'name', 'slug', 'code']);
+        }
+
         return Inertia::render('Dashboard/Settings/NotificationSounds', [
             'active_outlet' => $activeOutlet ? [
                 'id' => $activeOutlet->id,
@@ -82,6 +93,7 @@ class NotificationSoundController extends Controller
                 'code' => $outlet->code,
                 'outlet_type' => $outlet->outlet_type,
             ]) ?? collect(),
+            'stations' => $stations,
             'is_super_admin' => (bool) ($user?->isSuperAdmin() ?? false),
         ]);
     }
@@ -94,55 +106,101 @@ class NotificationSoundController extends Controller
         $user = $request->user();
         $isSuperAdmin = $user?->isSuperAdmin();
         $requestedOutletId = (int) $request->query('outlet_id', 0);
+        $requestedStationId = (int) $request->query('station_id', 0);
         $type = $request->input('type');
 
+        // Resolve outlet
+        $activeOutletId = $requestedOutletId;
+        if (!$activeOutletId && !$isSuperAdmin) {
+            $activeOutletId = $this->resolveOutlet($request)?->id;
+        }
+
+        // Build query: station-specific + outlet-level + global, with scope indicator
         $query = NotificationSound::query()
             ->when($type, fn ($q, $t) => $q->where('type', $t))
-            ->orderByRaw('ISNULL(outlet_id) DESC')
+            ->when($requestedStationId > 0, function ($q) use ($requestedStationId) {
+                $q->where(function ($sq) use ($requestedStationId) {
+                    $sq->where('station_id', $requestedStationId)
+                        ->orWhere(function ($sq2) {
+                            $sq2->whereNull('station_id');
+                        });
+                });
+            }, function ($q) use ($activeOutletId) {
+                // No station filter: show outlet-level + global
+                if ($activeOutletId) {
+                    $q->where(function ($sq) use ($activeOutletId) {
+                        $sq->whereNull('outlet_id')->orWhere('outlet_id', $activeOutletId);
+                    });
+                } else {
+                    $q->whereNull('outlet_id');
+                }
+            })
+            ->orderByRaw('
+                CASE
+                    WHEN station_id IS NOT NULL THEN 0
+                    WHEN outlet_id IS NOT NULL THEN 1
+                    ELSE 2
+                END
+            ')
+            ->orderBy('station_id')
             ->orderBy('outlet_id')
             ->orderBy('type')
             ->orderBy('sort_order')
             ->orderBy('name');
 
-        if ($isSuperAdmin && $requestedOutletId > 0) {
-            $query->where(function ($q) use ($requestedOutletId) {
-                $q->whereNull('outlet_id')->orWhere('outlet_id', $requestedOutletId);
-            });
-        } elseif (!$isSuperAdmin) {
-            $activeOutletId = $this->resolveOutlet($request)?->id;
-
-            if ($activeOutletId) {
-                $query->where(function ($q) use ($activeOutletId) {
-                    $q->whereNull('outlet_id')->orWhere('outlet_id', $activeOutletId);
-                });
+        $sounds = $query->get()->map(function ($sound) {
+            // Determine scope
+            if ($sound->station_id !== null) {
+                $scope = 'station';
+            } elseif ($sound->outlet_id !== null) {
+                $scope = 'outlet';
             } else {
-                $query->whereNull('outlet_id');
+                $scope = 'global';
             }
-        }
 
-        $sounds = $query->get()->map(fn ($sound) => [
-            'id' => $sound->id,
-            'name' => $sound->name,
-            'type' => $sound->type,
-            'type_label' => NotificationSound::getTypes()[$sound->type] ?? $sound->type,
-            'url' => $sound->url,
-            'file_path' => $sound->file_path,
-            'original_name' => $sound->original_name,
-            'file_size' => $sound->file_size,
-            'file_size_human' => $sound->file_size_human,
-            'is_active' => $sound->is_active,
-            'sort_order' => $sound->sort_order,
-            'created_at' => $sound->created_at->toISOString(),
-            'outlet_id' => $sound->outlet_id,
-            'outlet_name' => $sound->outlet?->name,
-            'outlet_code' => $sound->outlet?->code,
-            'is_global' => $sound->outlet_id === null,
-        ]);
+            return [
+                'id' => $sound->id,
+                'name' => $sound->name,
+                'type' => $sound->type,
+                'type_label' => NotificationSound::getTypes()[$sound->type] ?? $sound->type,
+                'url' => $sound->url,
+                'file_path' => $sound->file_path,
+                'original_name' => $sound->original_name,
+                'file_size' => $sound->file_size,
+                'file_size_human' => $sound->file_size_human,
+                'is_active' => $sound->is_active,
+                'sort_order' => $sound->sort_order,
+                'created_at' => $sound->created_at->toISOString(),
+                'outlet_id' => $sound->outlet_id,
+                'outlet_name' => $sound->outlet?->name,
+                'outlet_code' => $sound->outlet?->code,
+                'station_id' => $sound->station_id,
+                'station_name' => $sound->station?->name,
+                'station_slug' => $sound->station?->slug,
+                'scope' => $scope,
+                'is_global' => $sound->outlet_id === null && $sound->station_id === null,
+            ];
+        });
+
+        // Build effective active per type (fallback chain: station > outlet > global)
+        $effectiveActive = [];
+        $allTypes = array_keys(NotificationSound::getTypes());
+        foreach ($allTypes as $t) {
+            $typeSounds = $sounds->where('type', $t)->values();
+            $activeSound = $typeSounds->firstWhere('is_active', true);
+            $effectiveActive[$t] = $activeSound ? [
+                'id' => $activeSound['id'],
+                'name' => $activeSound['name'],
+                'scope' => $activeSound['scope'],
+                'url' => $activeSound['url'],
+            ] : null;
+        }
 
         return response()->json([
             'success' => true,
             'data' => $sounds,
             'types' => NotificationSound::getTypes(),
+            'effective_active' => $effectiveActive,
         ]);
     }
 
@@ -168,6 +226,7 @@ class NotificationSoundController extends Controller
             'type' => ['required', Rule::in(array_keys(NotificationSound::getTypes()))],
             'file' => ['required', 'file', 'mimes:mp3,wav,ogg,webm', 'max:5120'],
             'replace_existing' => ['sometimes', 'boolean'],
+            'station_id' => ['nullable', 'integer', 'exists:kitchen_stations,id'],
         ]);
 
         $file = $request->file('file');
@@ -176,18 +235,29 @@ class NotificationSoundController extends Controller
 
         Storage::disk('public')->putFileAs('notification-sounds', $file, $fileName);
 
-        $activeOutlet = $this->resolveOutletForAction($request);
-        $outletId = $activeOutlet?->id;
+        $stationId = $validated['station_id'] ?? null;
+        $outletId = null;
+
+        // Resolve outlet from station or active outlet
+        if ($stationId) {
+            $station = KitchenStation::find($stationId);
+            $outletId = $station?->outlet_id;
+        } else {
+            $activeOutlet = $this->resolveOutletForAction($request);
+            $outletId = $activeOutlet?->id;
+        }
 
         $replaceExisting = $request->boolean('replace_existing', true);
         if ($replaceExisting) {
             $existingQuery = NotificationSound::where('type', $validated['type'])
                 ->where('is_active', true);
 
-            if ($outletId) {
-                $existingQuery->where('outlet_id', $outletId);
+            if ($stationId) {
+                $existingQuery->where('station_id', $stationId);
+            } elseif ($outletId) {
+                $existingQuery->whereNull('station_id')->where('outlet_id', $outletId);
             } else {
-                $existingQuery->whereNull('outlet_id');
+                $existingQuery->whereNull('station_id')->whereNull('outlet_id');
             }
 
             $existingSound = $existingQuery->first();
@@ -208,6 +278,7 @@ class NotificationSoundController extends Controller
             'is_active' => true,
             'sort_order' => 0,
             'outlet_id' => $outletId,
+            'station_id' => $stationId,
         ]);
 
         return $this->notifySuccess($request, 'Suara notifikasi berhasil diupload.');
@@ -241,23 +312,38 @@ class NotificationSoundController extends Controller
 
     public function setActive(Request $request, NotificationSound $sound): \Symfony\Component\HttpFoundation\Response
     {
-        $activeOutlet = $this->resolveOutlet($request);
-        $activeOutletId = $activeOutlet?->id;
-
         $query = NotificationSound::where('type', $sound->type)
             ->where('id', '!=', $sound->id);
 
-        if ($sound->outlet_id === null) {
-            $query->whereNull('outlet_id');
+        // Scope deactivation to the same level
+        if ($sound->station_id !== null) {
+            // Station-specific: only deactivate other station-specific sounds for same station
+            $query->where('station_id', $sound->station_id);
+        } elseif ($sound->outlet_id !== null) {
+            // Outlet-level: deactivate outlet + global (so station-specific aren't affected)
+            $query->where(function ($q) use ($sound) {
+                $q->where(function ($q2) use ($sound) {
+                    $q2->whereNull('station_id')->where('outlet_id', $sound->outlet_id);
+                })->orWhere(function ($q2) {
+                    $q2->whereNull('station_id')->whereNull('outlet_id');
+                });
+            });
         } else {
-            $query->where('outlet_id', $sound->outlet_id);
+            // Global: only deactivate other global sounds
+            $query->whereNull('outlet_id')->whereNull('station_id');
         }
 
         $query->update(['is_active' => false]);
 
         $sound->update(['is_active' => true]);
 
-        return $this->notifySuccess($request, "Suara '{$sound->name}' sekarang aktif untuk tipe {$sound->type}.");
+        $scopeLabel = match(true) {
+            $sound->station_id !== null => "station {$sound->station?->name}",
+            $sound->outlet_id !== null => "outlet",
+            default => "global",
+        };
+
+        return $this->notifySuccess($request, "Suara '{$sound->name}' sekarang aktif untuk tipe {$sound->type} ({$scopeLabel}).");
     }
 
     public function destroy(Request $request, NotificationSound $sound): \Symfony\Component\HttpFoundation\Response

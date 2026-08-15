@@ -13,6 +13,9 @@ export default function SoundTestPanel({ compact = false, outletId = null }) {
         new_order: null,
         error: null,
         reminder: null,
+        print_pending: null,
+        print_failed: null,
+        print_success: null,
     });
     const [soundData, setSoundData] = useState({});
     const [loading, setLoading] = useState(true);
@@ -24,6 +27,9 @@ export default function SoundTestPanel({ compact = false, outletId = null }) {
 
     const soundTypes = [
         { key: 'new_order', label: 'Pesanan Baru', icon: <IconBell size={16} />, color: 'primary' },
+        { key: 'print_pending', label: 'Cetak Tertunda', icon: <IconBell size={16} />, color: 'warning' },
+        { key: 'print_failed', label: 'Cetak Gagal', icon: <IconAlertCircle size={16} />, color: 'danger' },
+        { key: 'print_success', label: 'Cetak Berhasil', icon: <IconCheck size={16} />, color: 'success' },
         { key: 'reminder', label: 'Pengingat', icon: <IconBell size={16} />, color: 'warning' },
         { key: 'error', label: 'Error', icon: <IconAlertCircle size={16} />, color: 'danger' },
         { key: 'general', label: 'Umum', icon: <IconVolume size={16} />, color: 'success' },
@@ -78,6 +84,9 @@ export default function SoundTestPanel({ compact = false, outletId = null }) {
                 new_order: null,
                 error: null,
                 reminder: null,
+                print_pending: null,
+                print_failed: null,
+                print_success: null,
             };
             
             const sounds = {};

@@ -561,6 +561,10 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::delete('/settings/notification-sounds/{sound}', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'destroy'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.destroy');
     Route::get('/settings/notification-sounds/{sound}/play', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'play'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.play');
 
+    // kitchen sound reminder configs
+    Route::get('/settings/kitchen-sound-configs', [\App\Http\Controllers\Apps\KitchenSoundConfigController::class, 'index'])->middleware('permission:business-settings-access')->name('settings.kitchen-sound-configs.index');
+    Route::put('/settings/kitchen-sound-configs', [\App\Http\Controllers\Apps\KitchenSoundConfigController::class, 'update'])->middleware(['permission:business-settings-access'])->name('settings.kitchen-sound-configs.update');
+
     Route::get('/settings/menu-reviews', [\App\Http\Controllers\Apps\SettingController::class, 'menuReviews'])->middleware('permission:business-settings-access')->name('settings.menu-reviews');
     Route::post('/settings/menu-reviews', [\App\Http\Controllers\Apps\SettingController::class, 'updateMenuReviews'])->middleware(['permission:business-settings-update', 'step_up'])->name('settings.menu-reviews.update');
 

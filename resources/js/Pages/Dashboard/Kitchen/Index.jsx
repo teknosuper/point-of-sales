@@ -84,6 +84,7 @@ export default function KitchenIndex({
     filters = null,
     selectedDevice = null,
     kioskMode = false,
+    soundConfigs = [],
 }) {
     const { flash, activeOutlet, printClient } = usePage().props;
     const [isFullscreenActive, setIsFullscreenActive] = useState(false);
@@ -109,7 +110,6 @@ export default function KitchenIndex({
     const [draftFilters, setDraftFilters] = useState(() =>
         buildBoardFilters(filters, selectedDevice)
     );
-    const audioUnlockedRef = useRef(false);
     const fetchBoardDataRef = useRef(null);
     const boardStateRef = useRef(
         buildBoardState({ activeStation, tickets, refreshMeta, filters, selectedDevice })
@@ -192,6 +192,15 @@ export default function KitchenIndex({
     }, [activeStation, selectedDevice]);
 
     useEffect(() => {
+        window.dispatchEvent(new CustomEvent('kitchen:set-station', {
+            detail: { stationId: activeStation?.id || null },
+        }));
+        // Clear repeating reminder intervals when station changes
+        Object.values(reminderIntervalsRef.current).forEach(id => clearInterval(id));
+        reminderIntervalsRef.current = {};
+    }, [activeStation?.id]);
+
+    useEffect(() => {
         fetchBoardDataRef.current = fetchBoardData;
     });
 
@@ -228,23 +237,6 @@ export default function KitchenIndex({
             pollInFlightRef.current = false;
         };
     }, [boardState.activeStation?.slug, boardState.refreshMeta?.interval_seconds]);
-
-    // Audio unlock handler - sounds now come from database
-    useEffect(() => {
-        if (typeof window === "undefined") return undefined;
-
-        const markAudioUnlocked = () => {
-            audioUnlockedRef.current = true;
-        };
-
-        window.addEventListener("pointerdown", markAudioUnlocked, { once: true });
-        window.addEventListener("keydown", markAudioUnlocked, { once: true });
-
-        return () => {
-            window.removeEventListener("pointerdown", markAudioUnlocked);
-            window.removeEventListener("keydown", markAudioUnlocked);
-        };
-    }, []);
 
     // Fetch notification sounds data for header info panel
     const fetchNotificationSounds = useCallback(async () => {
@@ -309,8 +301,7 @@ export default function KitchenIndex({
             )
             .join("");
 
-        console.info('Kitchen/Index: dispatching kitchen:print-error', newFailedIds);
-        window.dispatchEvent(new CustomEvent('kitchen:print-error', { detail: { count: newFailedIds.length } }));
+        console.info('Kitchen/Index: dispatching kitchen:print-failed', newFailedIds);
         window.dispatchEvent(new CustomEvent('kitchen:print-failed', { detail: { count: newFailedIds.length } }));
 
         Swal.fire({
@@ -444,7 +435,63 @@ export default function KitchenIndex({
         );
     }, [boardState.tickets]);
 
-    // playNotificationSound - now uses database sounds via KitchenNotificationProvider
+    /* ── Repeating reminders for configured intervals ── */
+    const reminderIntervalsRef = useRef({});
+
+    useEffect(() => {
+        const configMap = {};
+        (soundConfigs || []).forEach(c => {
+            if (c.is_enabled && c.interval_seconds > 0) {
+                configMap[c.event_type] = c.interval_seconds;
+            }
+        });
+
+        const tickets = boardState.tickets?.data || [];
+
+        const checkAndDispatch = (eventType, checkFn) => {
+            const interval = configMap[eventType];
+            if (!interval) return;
+
+            const matchingTickets = tickets.filter(checkFn);
+            const hasMatching = matchingTickets.length > 0;
+            const existing = reminderIntervalsRef.current[eventType];
+
+            if (hasMatching && !existing) {
+                const intervalId = setInterval(() => {
+                    const currentTickets = boardStateRef.current?.tickets?.data || [];
+                    const stillMatching = currentTickets.filter(checkFn);
+                    if (stillMatching.length > 0) {
+                        window.dispatchEvent(
+                            new CustomEvent(eventType, {
+                                detail: { count: stillMatching.length, repeating: true },
+                            })
+                        );
+                    } else {
+                        clearInterval(reminderIntervalsRef.current[eventType]);
+                        delete reminderIntervalsRef.current[eventType];
+                    }
+                }, interval * 1000);
+                reminderIntervalsRef.current[eventType] = intervalId;
+            } else if (!hasMatching && existing) {
+                clearInterval(existing);
+                delete reminderIntervalsRef.current[eventType];
+            }
+        };
+
+        checkAndDispatch('kitchen:print-failed', t => t?.print?.status === 'failed');
+        checkAndDispatch('kitchen:print-pending', t => t?.print?.status === 'queued' || t?.print?.status === 'reprint_queued');
+        checkAndDispatch('kitchen:print-reminder', t => t?.print?.status === 'printed' && (t?.status === 'pending' || t?.status === 'acknowledged'));
+
+        return () => {};
+    }, [boardState.tickets, soundConfigs]);
+
+    useEffect(() => {
+        return () => {
+            Object.values(reminderIntervalsRef.current).forEach(id => clearInterval(id));
+            reminderIntervalsRef.current = {};
+        };
+    }, []);
+
 
     const findTicketById = (ticketId) =>
         (boardState.tickets?.data || []).find((ticket) => ticket.id === ticketId) || null;
