@@ -96,11 +96,17 @@ export default function NotificationSounds() {
     const handleSaveConfigs = async () => {
         setSavingConfigs(true);
         try {
+            const xsrfToken = document.cookie
+                .split('; ')
+                .find(row => row.startsWith('XSRF-TOKEN='))
+                ?.split('=')[1];
+
             const response = await fetch(route('settings.kitchen-sound-configs.update'), {
                 method: 'PUT',
+                credentials: 'include',
                 body: JSON.stringify({ configs: soundConfigs }),
                 headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content,
+                    'X-XSRF-TOKEN': xsrfToken ? decodeURIComponent(xsrfToken) : '',
                     'Content-Type': 'application/json',
                     'Accept': 'application/json',
                 },
@@ -261,15 +267,21 @@ export default function NotificationSounds() {
         setUploading(true);
 
         try {
+            const xsrfToken = document.cookie
+                .split('; ')
+                .find(row => row.startsWith('XSRF-TOKEN='))
+                ?.split('=')[1];
+
             const response = await fetch(route('settings.notification-sounds.update', { sound: editingSound.id }), {
                 method: 'PUT',
+                credentials: 'include',
                 body: JSON.stringify({
                     name: editData.name,
                     type: editData.type,
                     sort_order: editData.sort_order,
                 }),
                 headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content,
+                    'X-XSRF-TOKEN': xsrfToken ? decodeURIComponent(xsrfToken) : '',
                     'Content-Type': 'application/json',
                 },
             });
@@ -398,6 +410,99 @@ export default function NotificationSounds() {
                     </div>
                 </div>
             </div>
+
+            {/* Interval Pengingat Configuration */}
+            {!loading && soundConfigs.length > 0 && (
+                <div className="mb-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
+                    <div className="mb-4 flex items-center gap-2">
+                        <IconSettings size={20} className="text-slate-600 dark:text-slate-400" />
+                        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">
+                            Konfigurasi Interval Pengingat
+                        </h2>
+                    </div>
+                    <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                        Aktifkan dan atur interval (dalam detik) untuk suara pengingat berulang.
+                        Jika diaktifkan, suara akan berulang tiap N detik selama kondisi masih ada (belum diproses/diperbaiki).
+                    </p>
+
+                    <div className="space-y-3">
+                        {soundConfigs.map((config) => (
+                            <div
+                                key={config.event_type}
+                                className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700 dark:bg-slate-800/50"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <IconClock size={18} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                                    <div>
+                                        <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                                            {config.event_label}
+                                        </span>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                            {config.event_type === 'print_failed' && 'Suara berulang jika ada cetak gagal yang belum diperbaiki'}
+                                            {config.event_type === 'print_pending' && 'Suara berulang jika ada pesanan menunggu cetak ke printer'}
+                                            {config.event_type === 'print_reminder' && 'Suara berulang jika sudah dicetak tapi belum diproses di dapur'}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                    {/* Toggle */}
+                                    <button
+                                        onClick={() => updateSoundConfig(config.event_type, 'is_enabled', !config.is_enabled)}
+                                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
+                                            config.is_enabled
+                                                ? 'bg-primary-600'
+                                                : 'bg-slate-300 dark:bg-slate-600'
+                                        }`}
+                                    >
+                                        <span
+                                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                                config.is_enabled ? 'translate-x-5' : 'translate-x-0'
+                                            }`}
+                                        />
+                                    </button>
+
+                                    {/* Interval input */}
+                                    <div className="flex items-center gap-1.5">
+                                        <input
+                                            type="number"
+                                            min="5"
+                                            max="3600"
+                                            step="5"
+                                            value={config.interval_seconds}
+                                            onChange={(e) => updateSoundConfig(config.event_type, 'interval_seconds', parseInt(e.target.value) || 0)}
+                                            disabled={!config.is_enabled}
+                                            className={`w-20 rounded-lg border px-2.5 py-1.5 text-sm text-center focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white ${
+                                                !config.is_enabled
+                                                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500'
+                                                    : 'border-slate-300'
+                                            }`}
+                                        />
+                                        <span className="text-xs text-slate-500 dark:text-slate-400">dtk</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="mt-4 flex justify-end">
+                        <button
+                            onClick={handleSaveConfigs}
+                            disabled={savingConfigs}
+                            className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-700 disabled:opacity-50"
+                        >
+                            {savingConfigs ? (
+                                <>
+                                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+                                    Menyimpan...
+                                </>
+                            ) : (
+                                'Simpan Konfigurasi'
+                            )}
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Loading State */}
             {loading && (
@@ -596,99 +701,6 @@ export default function NotificationSounds() {
                         );
                     })}
                 </>
-            )}
-
-            {/* Interval Pengingat Configuration */}
-            {!loading && soundConfigs.length > 0 && (
-                <div className="mb-8 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
-                    <div className="mb-4 flex items-center gap-2">
-                        <IconSettings size={20} className="text-slate-600 dark:text-slate-400" />
-                        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">
-                            Konfigurasi Interval Pengingat
-                        </h2>
-                    </div>
-                    <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-                        Aktifkan dan atur interval (dalam detik) untuk suara pengingat berulang. 
-                        Jika diaktifkan, suara akan berulang tiap N detik selama kondisi masih ada (belum diproses/diperbaiki).
-                    </p>
-
-                    <div className="space-y-3">
-                        {soundConfigs.map((config) => (
-                            <div
-                                key={config.event_type}
-                                className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700 dark:bg-slate-800/50"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <IconClock size={18} className="shrink-0 text-slate-500 dark:text-slate-400" />
-                                    <div>
-                                        <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
-                                            {config.event_label}
-                                        </span>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                                            {config.event_type === 'print_failed' && 'Suara berulang jika ada cetak gagal yang belum diperbaiki'}
-                                            {config.event_type === 'print_pending' && 'Suara berulang jika ada pesanan menunggu cetak ke printer'}
-                                            {config.event_type === 'print_reminder' && 'Suara berulang jika sudah dicetak tapi belum diproses di dapur'}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center gap-3">
-                                    {/* Toggle */}
-                                    <button
-                                        onClick={() => updateSoundConfig(config.event_type, 'is_enabled', !config.is_enabled)}
-                                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
-                                            config.is_enabled
-                                                ? 'bg-primary-600'
-                                                : 'bg-slate-300 dark:bg-slate-600'
-                                        }`}
-                                    >
-                                        <span
-                                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                                                config.is_enabled ? 'translate-x-5' : 'translate-x-0'
-                                            }`}
-                                        />
-                                    </button>
-
-                                    {/* Interval input */}
-                                    <div className="flex items-center gap-1.5">
-                                        <input
-                                            type="number"
-                                            min="5"
-                                            max="3600"
-                                            step="5"
-                                            value={config.interval_seconds}
-                                            onChange={(e) => updateSoundConfig(config.event_type, 'interval_seconds', parseInt(e.target.value) || 0)}
-                                            disabled={!config.is_enabled}
-                                            className={`w-20 rounded-lg border px-2.5 py-1.5 text-sm text-center focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white ${
-                                                !config.is_enabled
-                                                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500'
-                                                    : 'border-slate-300'
-                                            }`}
-                                        />
-                                        <span className="text-xs text-slate-500 dark:text-slate-400">dtk</span>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="mt-4 flex justify-end">
-                        <button
-                            onClick={handleSaveConfigs}
-                            disabled={savingConfigs}
-                            className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-700 disabled:opacity-50"
-                        >
-                            {savingConfigs ? (
-                                <>
-                                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                                    Menyimpan...
-                                </>
-                            ) : (
-                                'Simpan Konfigurasi'
-                            )}
-                        </button>
-                    </div>
-                </div>
             )}
 
             {/* Upload Modal */}

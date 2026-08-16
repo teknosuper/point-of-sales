@@ -121,6 +121,7 @@ export default function KitchenIndex({
     const queuedPrintWarnedRef = useRef(new Set());
     const customerAlertWarnedRef = useRef(new Set());
     const printedReminderWarnedRef = useRef(new Set());
+    const printedSuccessWarnedRef = useRef(new Set());
     const [notificationSounds, setNotificationSounds] = useState([]);
     const [soundsLoading, setSoundsLoading] = useState(true);
 
@@ -435,6 +436,37 @@ export default function KitchenIndex({
         );
     }, [boardState.tickets]);
 
+    useEffect(() => {
+        const tickets = boardState.tickets?.data || [];
+        const printedTickets = tickets.filter(
+            (ticket) => ticket?.print?.status === 'printed'
+        );
+
+        if (printedTickets.length === 0) {
+            printedSuccessWarnedRef.current = new Set();
+            return;
+        }
+
+        const newIds = printedTickets
+            .map((t) => t.id)
+            .filter((id) => !printedSuccessWarnedRef.current.has(id));
+
+        if (newIds.length === 0) {
+            return;
+        }
+
+        printedSuccessWarnedRef.current = new Set([
+            ...printedSuccessWarnedRef.current,
+            ...newIds,
+        ]);
+
+        window.dispatchEvent(
+            new CustomEvent('kitchen:print-success', {
+                detail: { count: newIds.length },
+            })
+        );
+    }, [boardState.tickets]);
+
     /* ── Repeating reminders for configured intervals ── */
     const reminderIntervalsRef = useRef({});
 
@@ -448,8 +480,16 @@ export default function KitchenIndex({
 
         const tickets = boardState.tickets?.data || [];
 
+        // Map full event name → config event_type
+        const eventToConfig = {
+            'kitchen:print-failed': 'print_failed',
+            'kitchen:print-pending': 'print_pending',
+            'kitchen:print-reminder': 'print_reminder',
+        };
+
         const checkAndDispatch = (eventType, checkFn) => {
-            const interval = configMap[eventType];
+            const configKey = eventToConfig[eventType];
+            const interval = configKey ? configMap[configKey] : null;
             if (!interval) return;
 
             const matchingTickets = tickets.filter(checkFn);

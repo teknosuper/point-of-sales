@@ -22,6 +22,7 @@ const EVENT_SOUND_MAP = {
     'kitchen:new-order': 'new_order',
     'kitchen:print-failed': 'print_failed',
     'kitchen:print-pending': 'print_pending',
+    'kitchen:print-success': 'print_success',
     'kitchen:print-reminder': 'reminder',
     'kitchen:qr-feedback': 'general',
 };
@@ -41,7 +42,6 @@ export default function KitchenNotificationProvider({ children, outletId = null,
     const audioCtxRef = useRef(null);          // shared AudioContext (created once)
     const audioUnlockedRef = useRef(false);     // true after first user interaction
     const pendingSoundsRef = useRef([]);        // queue of types waiting for unlock
-    const seenEventsRef = useRef(new Set());    // dedup: don't replay same event type
     const mountedRef = useRef(true);
     const stationIdRef = useRef(stationId);     // mutable ref for stationId
 
@@ -163,6 +163,11 @@ export default function KitchenNotificationProvider({ children, outletId = null,
                 headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
             });
 
+            if (res.status === 401 || res.status === 403) {
+                console.debug(`[KitchenNotif] Auth required for sound data (${res.status}), using static fallbacks`);
+                return;
+            }
+
             if (!res.ok) {
                 console.warn(`[KitchenNotif] Sound data fetch failed (${res.status}), using static fallbacks`);
                 return;
@@ -260,18 +265,18 @@ export default function KitchenNotificationProvider({ children, outletId = null,
                     );
                 }
 
-                // Toast only for first-fire (not repeating)
-                const isRepeating = !!detail.repeating;
-                if (!isRepeating) {
-                    if (eventName === 'kitchen:print-pending') {
-                        toast('Pesanan menunggu cetak ke printer dapur.', { icon: '🖨️', duration: 4000 });
-                    }
-                    if (eventName === 'kitchen:print-reminder') {
-                        toast.info('Pengingat: ada pesanan sudah tercetak tetapi belum diproses di dapur.');
-                    }
-                    if (eventName === 'kitchen:print-failed') {
-                        toast.error('Cetak gagal! Periksa printer dapur.');
-                    }
+                // Toast for all events (first-fire and repeating)
+                if (eventName === 'kitchen:print-pending') {
+                    toast('Pesanan menunggu cetak ke printer dapur.', { icon: '🖨️', duration: 4000 });
+                }
+                if (eventName === 'kitchen:print-reminder') {
+                    toast.info('Pengingat: ada pesanan sudah tercetak tetapi belum diproses di dapur.');
+                }
+                if (eventName === 'kitchen:print-failed') {
+                    toast.error('Cetak gagal! Periksa printer dapur.');
+                }
+                if (eventName === 'kitchen:print-success') {
+                    toast.success('Cetak berhasil!');
                 }
             };
 
