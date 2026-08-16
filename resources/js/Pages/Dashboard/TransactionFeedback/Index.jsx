@@ -5,6 +5,7 @@ import {
     IconAlertTriangle,
     IconBell,
     IconChevronDown,
+    IconExternalLink,
     IconFileSearch,
     IconMedal,
     IconSearch,
@@ -67,6 +68,8 @@ export default function Index({
 }) {
     const [showFilters, setShowFilters] = useState(false);
     const isTenantWorkspace = Boolean(workspace?.is_tenant);
+    const isMainOutlet = workspace?.active_outlet?.outlet_type === 'main';
+    const canViewFeedbackLink = workspace?.is_super_admin && isMainOutlet;
     const currentPage = Number(feedbacks?.current_page || 1);
     const totalItems = Number(feedbacks?.total || 0);
     const fromItem = Number(feedbacks?.from || 0);
@@ -154,6 +157,7 @@ export default function Index({
                                     <th className="px-4 py-3">Pesan</th>
                                     <th className="px-4 py-3">Status</th>
                                     <th className="px-4 py-3">Waktu</th>
+                                    {canViewFeedbackLink && <th className="px-4 py-3">Link</th>}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -189,6 +193,19 @@ export default function Index({
                                                 <div className="mt-1">Alert: {formatDateTime(item.customer_alert_requested_at)}</div>
                                             ) : null}
                                         </td>
+                                        {canViewFeedbackLink && (
+                                            <td className="px-4 py-4">
+                                                <a
+                                                    href={`/feedback/transactions/${item.invoice}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                                >
+                                                    <IconExternalLink size={14} />
+                                                    Buka
+                                                </a>
+                                            </td>
+                                        )}
                                     </tr>
                                 ))}
                             </tbody>
@@ -223,6 +240,17 @@ export default function Index({
                                     <div className="text-xs text-slate-500 dark:text-slate-400">
                                         {formatDateTime(item.created_at)}
                                     </div>
+                                    {canViewFeedbackLink && (
+                                        <a
+                                            href={`/feedback/transactions/${item.invoice}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                                        >
+                                            <IconExternalLink size={13} />
+                                            Buka Halaman Feedback
+                                        </a>
+                                    )}
                                 </div>
                             </div>
                         ))}

@@ -129,6 +129,7 @@ class TransactionFeedbackController extends Controller
                     'name' => $outlet->name,
                     'outlet_type' => $outlet->outlet_type ?? 'main',
                 ],
+                'is_super_admin' => (bool) $user?->isSuperAdmin(),
             ],
         ]);
     }
