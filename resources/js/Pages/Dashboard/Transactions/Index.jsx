@@ -113,6 +113,7 @@ import {
     IconLoader2,
     IconChevronDown, IconMinus, IconPlus,
     IconChevronUp,
+    IconAlertTriangle,
 } from "@/Utils/icons";
 
 export default function Index({
@@ -142,6 +143,8 @@ export default function Index({
     tenantOutlets: tenantOutletOptions = [],
     mainCategories = [],
     operationalSettings = null,
+    failedPrintNotifications = [],
+    posRemindMinutes = 2,
 }) {
     const {
         auth,
@@ -193,6 +196,7 @@ export default function Index({
         useState(0);
     const [orderType, setOrderType] = useState("dine_in");
     const [draftOrderType, setDraftOrderType] = useState("dine_in");
+    const [showFailedPrintModal, setShowFailedPrintModal] = useState(false);
     const [modifierModalOrderType, setModifierModalOrderType] = useState(
         "dine_in"
     );
@@ -338,6 +342,27 @@ export default function Index({
             isOfflineBannerExpanded ? "1" : "0"
         );
     }, [isOfflineBannerExpanded]);
+
+    useEffect(() => {
+        if (failedPrintNotifications.length === 0) return;
+        const DISMISS_KEY = 'pos:failed-print-dismissed';
+        const REMIND_AFTER_MS = posRemindMinutes * 60 * 1000;
+        try {
+            const lastDismissed = parseInt(localStorage.getItem(DISMISS_KEY) || '0', 10);
+            if (Date.now() - lastDismissed > REMIND_AFTER_MS) {
+                setShowFailedPrintModal(true);
+            }
+        } catch {
+            setShowFailedPrintModal(true);
+        }
+    }, [failedPrintNotifications, posRemindMinutes]);
+
+    const dismissFailedPrintModal = () => {
+        try {
+            localStorage.setItem('pos:failed-print-dismissed', String(Date.now()));
+        } catch {}
+        setShowFailedPrintModal(false);
+    };
 
     const trustedOfflineBootstrap =
         offlineBootstrap &&
@@ -945,7 +970,11 @@ export default function Index({
             saveOfflinePosBootstrap(snapshot);
             setOfflineBootstrap(snapshot);
         } catch (error) {
-            console.error("Offline bootstrap fetch error:", error);
+            if (error?.code === 'ECONNABORTED' || error?.response?.status === 422) {
+                console.debug("[POS] Offline snapshot skipped:", error?.response?.data?.message || error?.code);
+            } else {
+                console.warn("[POS] Offline bootstrap fetch failed:", error?.message || error);
+            }
         } finally {
             setIsPreparingOfflineSnapshot(false);
         }
@@ -5814,6 +5843,120 @@ export default function Index({
                         </div>
                     </div>
                 </div>
+
+                {failedPrintNotifications.length > 0 && showFailedPrintModal && (() => {
+                    const hasFailed = failedPrintNotifications.some(n => n.status === 'failed');
+                    const hasPending = failedPrintNotifications.some(n => n.status === 'pending');
+                    const headerTitle = hasFailed && hasPending
+                        ? 'Printer Dapur Bermasalah!'
+                        : hasFailed
+                            ? 'Printer Dapur Gagal Cetak!'
+                            : 'Pesanan Menunggu Cetak!';
+                    const headerBg = hasFailed && !hasPending
+                        ? 'border-red-100 dark:border-red-900/50'
+                        : !hasFailed && hasPending
+                            ? 'border-amber-100 dark:border-amber-900/50'
+                            : 'border-red-100 dark:border-red-900/50';
+
+                    return (
+                    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4" onClick={dismissFailedPrintModal}>
+                        <div
+                            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-gray-900"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className={`flex items-center gap-3 border-b ${headerBg} px-5 py-4`}>
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/40">
+                                    <IconAlertTriangle size={20} className="text-amber-600 dark:text-amber-400" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                                        {headerTitle}
+                                    </p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        {failedPrintNotifications.length} pesanan terdampar
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="max-h-[40vh] overflow-y-auto px-5 py-3">
+                                <div className="space-y-2">
+                                    {failedPrintNotifications.map((item) => {
+                                        const isFailed = item.status === 'failed';
+                                        return (
+                                        <div
+                                            key={item.ticket_id}
+                                            className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-3 py-2 text-xs ${
+                                                isFailed
+                                                    ? 'bg-red-50 dark:bg-red-950/30'
+                                                    : 'bg-amber-50 dark:bg-amber-950/30'
+                                            }`}
+                                        >
+                                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                                isFailed
+                                                    ? 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200'
+                                                    : 'bg-amber-200 text-amber-800 dark:bg-amber-800 dark:text-amber-200'
+                                            }`}>
+                                                {isFailed ? 'GAGAL' : 'ANTRI'}
+                                            </span>
+                                            <span className={`font-bold ${
+                                                isFailed
+                                                    ? 'text-red-900 dark:text-red-100'
+                                                    : 'text-amber-900 dark:text-amber-100'
+                                            }`}>
+                                                {item.outlet_name}
+                                            </span>
+                                            <span className={`${
+                                                isFailed
+                                                    ? 'text-red-700 dark:text-red-300'
+                                                    : 'text-amber-700 dark:text-amber-300'
+                                            }`}>
+                                                {item.station_name}
+                                            </span>
+                                            <span className={`${
+                                                isFailed
+                                                    ? 'text-red-700 dark:text-red-300'
+                                                    : 'text-amber-700 dark:text-amber-300'
+                                            }`}>
+                                                {item.invoice || "-"}
+                                            </span>
+                                            <span className={`${
+                                                isFailed
+                                                    ? 'text-red-500 dark:text-red-400'
+                                                    : 'text-amber-500 dark:text-amber-400'
+                                            }`}>
+                                                {item.minutes_ago} menit
+                                            </span>
+                                            {item.device_name && item.device_name !== '-' && (
+                                                <span className={`${
+                                                    isFailed
+                                                        ? 'text-red-400 dark:text-red-500'
+                                                        : 'text-amber-400 dark:text-amber-500'
+                                                }`}>
+                                                    ({item.device_name})
+                                                </span>
+                                            )}
+                                        </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3 dark:border-slate-700">
+                                <button
+                                    onClick={dismissFailedPrintModal}
+                                    className="rounded-lg bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                >
+                                    Ingatkan Nanti
+                                </button>
+                                <button
+                                    onClick={dismissFailedPrintModal}
+                                    className="rounded-lg bg-primary-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-primary-700"
+                                >
+                                    Tutup
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    );
+                })()}
 
                 {(isOfflineMode || offlineQueueCount > 0) && (
                     <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200 lg:px-4 lg:py-3 max-h-[40vh] overflow-y-auto">

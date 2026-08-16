@@ -522,7 +522,10 @@ export default function KitchenIndex({
         checkAndDispatch('kitchen:print-pending', t => t?.print?.status === 'queued' || t?.print?.status === 'reprint_queued');
         checkAndDispatch('kitchen:print-reminder', t => t?.print?.status === 'printed' && (t?.status === 'pending' || t?.status === 'acknowledged'));
 
-        return () => {};
+        return () => {
+            Object.values(reminderIntervalsRef.current).forEach(id => clearInterval(id));
+            reminderIntervalsRef.current = {};
+        };
     }, [boardState.tickets, soundConfigs]);
 
     useEffect(() => {

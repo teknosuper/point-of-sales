@@ -32,7 +32,7 @@ const SOUND_TYPES = [
     'print_pending', 'print_failed', 'print_success',
 ];
 
-export default function KitchenNotificationProvider({ children, outletId = null, stationId = null, enabled = true }) {
+export default function KitchenNotificationProvider({ children, outletId = null, stationId = null }) {
     /* ── State ── */
     const [soundUrls, setSoundUrls] = useState(() =>
         Object.fromEntries(SOUND_TYPES.map(t => [t, null]))
@@ -245,12 +245,17 @@ export default function KitchenNotificationProvider({ children, outletId = null,
        Only active when enabled (kitchen board page).
        ════════════════════════════════════════════════════════════ */
     useEffect(() => {
-        if (!enabled) return;
+        const isKitchenBoardPage = () => {
+            const path = window.location.pathname;
+            return path === '/dashboard/kitchen' || path.startsWith('/dashboard/kitchen/');
+        };
 
         const handlers = {};
 
         Object.entries(EVENT_SOUND_MAP).forEach(([eventName, soundType]) => {
             const handler = (event) => {
+                if (!isKitchenBoardPage()) return;
+
                 const detail = event?.detail || {};
                 const count = Number(detail.count || 0);
 
@@ -289,7 +294,7 @@ export default function KitchenNotificationProvider({ children, outletId = null,
                 window.removeEventListener(eventName, handler);
             });
         };
-    }, [enabled, enqueueOrPlay, showBrowserNotification]);
+    }, [enqueueOrPlay, showBrowserNotification]);
 
     return children;
 }

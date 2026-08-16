@@ -37,6 +37,107 @@ const TYPE_ICONS = {
     general: IconVolume,
 };
 
+function PosReminderSetting() {
+    const [minutes, setMinutes] = useState(2);
+    const [saving, setSaving] = useState(false);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        fetch(route('settings.pos-reminder.get'), {
+            credentials: 'include',
+            headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
+        })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) setMinutes(data.data.remind_minutes);
+            })
+            .catch(() => {})
+            .finally(() => setLoading(false));
+    }, []);
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            const xsrfToken = document.cookie
+                .split('; ')
+                .find(row => row.startsWith('XSRF-TOKEN='))
+                ?.split('=')[1];
+
+            const response = await fetch(route('settings.pos-reminder.update'), {
+                method: 'PUT',
+                credentials: 'include',
+                body: JSON.stringify({ remind_minutes: minutes }),
+                headers: {
+                    'X-XSRF-TOKEN': xsrfToken ? decodeURIComponent(xsrfToken) : '',
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                },
+            });
+            const data = await response.json();
+            if (data.success) {
+                toast.success(data.message || 'Pengingat POS berhasil disimpan');
+            } else {
+                toast.error(data.message || 'Gagal menyimpan');
+            }
+        } catch {
+            toast.error('Gagal menyimpan pengingat POS');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    if (loading) return null;
+
+    return (
+        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
+            <div className="mb-4 flex items-center gap-2">
+                <IconClock size={20} className="text-slate-600 dark:text-slate-400" />
+                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200">
+                    Pengingat POS — Printer Gagal Cetak
+                </h2>
+            </div>
+            <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                Atur berapa lama (dalam menit) pengingat "Ingatkan Nanti" ditampilkan kembali setelah ditutup di halaman kasir.
+            </p>
+
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        Interval pengingat
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                        <input
+                            type="number"
+                            min="1"
+                            max="60"
+                            step="1"
+                            value={minutes}
+                            onChange={(e) => setMinutes(Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))}
+                            className="w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm text-center focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                        />
+                        <span className="text-xs text-slate-500 dark:text-slate-400">menit</span>
+                    </div>
+                </div>
+
+                <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-700 disabled:opacity-50"
+                >
+                    {saving ? (
+                        <>
+                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+                            Menyimpan...
+                        </>
+                    ) : (
+                        'Simpan'
+                    )}
+                </button>
+            </div>
+        </div>
+    );
+}
+
 export default function NotificationSounds() {
     const { props } = usePage();
     const [sounds, setSounds] = useState([]);
@@ -502,6 +603,11 @@ export default function NotificationSounds() {
                         </button>
                     </div>
                 </div>
+            )}
+
+            {/* POS Reminder Interval */}
+            {!loading && (
+                <PosReminderSetting />
             )}
 
             {/* Loading State */}

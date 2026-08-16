@@ -561,6 +561,10 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
     Route::delete('/settings/notification-sounds/{sound}', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'destroy'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.destroy');
     Route::get('/settings/notification-sounds/{sound}/play', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'play'])->middleware('permission:business-settings-access')->name('settings.notification-sounds.play');
 
+    // POS failed print reminder setting
+    Route::get('/settings/pos-reminder', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'getPosReminderSetting'])->middleware('permission:business-settings-access')->name('settings.pos-reminder.get');
+    Route::put('/settings/pos-reminder', [\App\Http\Controllers\Apps\NotificationSoundController::class, 'updatePosReminderSetting'])->middleware(['permission:business-settings-update'])->name('settings.pos-reminder.update');
+
     // kitchen sound reminder configs
     Route::get('/settings/kitchen-sound-configs', [\App\Http\Controllers\Apps\KitchenSoundConfigController::class, 'index'])->middleware('permission:business-settings-access')->name('settings.kitchen-sound-configs.index');
     Route::put('/settings/kitchen-sound-configs', [\App\Http\Controllers\Apps\KitchenSoundConfigController::class, 'update'])->middleware(['permission:business-settings-access'])->name('settings.kitchen-sound-configs.update');

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\KitchenStation;
 use App\Models\NotificationSound;
 use App\Models\Outlet;
+use App\Models\Setting;
 use App\Services\OutletResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -365,6 +366,30 @@ class NotificationSoundController extends Controller
                 'url' => $sound->url,
                 'name' => $sound->name,
             ],
+        ]);
+    }
+
+    public function getPosReminderSetting(): JsonResponse
+    {
+        $minutes = Setting::getInt('pos_failed_print_remind_minutes', 2);
+
+        return response()->json([
+            'success' => true,
+            'data' => ['remind_minutes' => $minutes],
+        ]);
+    }
+
+    public function updatePosReminderSetting(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'remind_minutes' => ['required', 'integer', 'min:1', 'max:60'],
+        ]);
+
+        Setting::set('pos_failed_print_remind_minutes', $validated['remind_minutes'], 'POS failed print remind later interval in minutes');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pengingat POS berhasil disimpan.',
         ]);
     }
 }

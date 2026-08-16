@@ -11,6 +11,8 @@ use App\Models\CustomerVoucher;
 use App\Models\DiningTable;
 use App\Models\KitchenStation;
 use App\Models\KitchenStationDevice;
+use App\Models\KitchenTicket;
+use App\Models\KitchenTicketEvent;
 use App\Models\Outlet;
 use App\Models\PaymentSetting;
 use App\Models\PosCheckoutReservation;
@@ -461,6 +463,118 @@ class TransactionController extends Controller
             ])
             ->values();
 
+        $failedPrintNotifications = collect();
+        $cutoff = now()->subMinutes(5);
+
+        // Find tickets with print problems: failed >5min ago OR pending >5min
+        // No date filter, no outlet filter — centralized cashier sees all
+        $problemTicketIds = PrintJob::query()
+            ->select('kitchen_ticket_id')
+            ->distinct()
+            ->join('kitchen_tickets', 'kitchen_tickets.id', '=', 'print_jobs.kitchen_ticket_id')
+            ->where('print_jobs.job_type', 'kitchen_ticket')
+            ->whereNotNull('print_jobs.kitchen_ticket_id')
+            ->where('kitchen_tickets.status', '!=', 'completed')
+            ->where(function ($q) use ($cutoff) {
+                // Failed >5 min ago
+                $q->where(function ($q2) use ($cutoff) {
+                    $q2->where('print_jobs.status', 'failed')
+                        ->where('print_jobs.failed_at', '<=', $cutoff);
+                })
+                // OR still pending/queued >5 min
+                ->orWhere(function ($q2) use ($cutoff) {
+                    $q2->whereIn('print_jobs.status', ['queued', 'reprint_queued'])
+                        ->where('print_jobs.created_at', '<=', $cutoff);
+                });
+            })
+            ->limit(20)
+            ->pluck('kitchen_ticket_id')
+            ->values();
+
+        if ($problemTicketIds->isNotEmpty()) {
+            $tickets = KitchenTicket::query()
+                ->with([
+                    'kitchenStation:id,name,outlet_id',
+                    'transaction:id,invoice',
+                    'printJobs' => function ($q) {
+                        $q->select('id', 'kitchen_ticket_id', 'status', 'kitchen_station_device_id', 'failure_reason', 'failed_at', 'created_at')
+                            ->orderByDesc('created_at');
+                    },
+                    'printJobs.device:id,name',
+                ])
+                ->whereIn('id', $problemTicketIds)
+                ->get();
+
+                // Batch-load outlet names
+                $outletIds = $tickets->pluck('kitchenStation.outlet_id')->filter()->unique()->values();
+                $outletNames = \App\Models\Outlet::whereIn('id', $outletIds)->pluck('name', 'id');
+
+                $failedPrintNotifications = $tickets
+                    ->filter(function ($ticket) {
+                        $latestFailed = $ticket->printJobs->where('status', 'failed')->first();
+                        $latestQueued = $ticket->printJobs->whereIn('status', ['queued', 'reprint_queued'])->first();
+
+                        // Stale failure: failed >5min ago, no success after
+                        if ($latestFailed?->failed_at) {
+                            $hasSuccessAfter = $ticket->printJobs
+                                ->where('status', 'success')
+                                ->where('created_at', '>', $latestFailed->failed_at)
+                                ->isNotEmpty();
+                            if (! $hasSuccessAfter) {
+                                return true;
+                            }
+                        }
+
+                        // Stale pending: still queued, older than 5 min
+                        if ($latestQueued && $latestQueued->created_at && $latestQueued->created_at->lte(now()->subMinutes(5))) {
+                            return true;
+                        }
+
+                        return false;
+                    })
+                    ->take(5)
+                    ->map(function ($ticket) use ($outletNames) {
+                        $latestFailed = $ticket->printJobs->where('status', 'failed')->first();
+                        $latestQueued = $ticket->printJobs->whereIn('status', ['queued', 'reprint_queued'])->first();
+                        $outletId = $ticket->kitchenStation?->outlet_id;
+
+                        // Determine which is the "problem" — failed takes priority
+                        $isFailed = $latestFailed?->failed_at
+                            && (! $latestQueued || $latestFailed->failed_at->gte($latestQueued->created_at));
+
+                        $base = [
+                            'ticket_id' => $ticket->id,
+                            'ticket_number' => $ticket->ticket_number,
+                            'station_name' => $ticket->kitchenStation->name ?? '-',
+                            'outlet_name' => $outletNames[$outletId] ?? '-',
+                            'invoice' => $ticket->transaction->invoice ?? '-',
+                        ];
+
+                        if ($isFailed) {
+                            return [
+                                ...$base,
+                                'status' => 'failed',
+                                'failed_at' => $latestFailed->failed_at?->toISOString(),
+                                'minutes_ago' => (int) now()->diffInMinutes($latestFailed->failed_at),
+                                'device_name' => $latestFailed->device?->name ?? '-',
+                                'reason' => $latestFailed->failure_reason ?? '',
+                            ];
+                        }
+
+                        return [
+                            ...$base,
+                            'status' => 'pending',
+                            'failed_at' => $latestQueued->created_at?->toISOString(),
+                            'minutes_ago' => $latestQueued->created_at
+                                ? (int) now()->diffInMinutes($latestQueued->created_at)
+                                : 0,
+                            'device_name' => $latestQueued->device?->name ?? '-',
+                            'reason' => '',
+                        ];
+                    })
+                    ->values();
+        }
+
         return Inertia::render('Dashboard/Transactions/Index', [
             'carts' => $carts
                 ->map(fn (Cart $cart) => $this->serializeCart($cart))
@@ -482,6 +596,8 @@ class TransactionController extends Controller
             'bankAccounts' => $bankAccounts,
             'pendingTableOrders' => $pendingTableOrders,
             'kitchenStations' => $kitchenStations,
+            'failedPrintNotifications' => $failedPrintNotifications->values(),
+            'posRemindMinutes' => Setting::getInt('pos_failed_print_remind_minutes', 2),
             'openTableOrderId' => $openTableOrderId > 0 ? $openTableOrderId : null,
             'shiftSummary' => $this->cashierShiftService->summarizeForDisplay($activeShift),
             'outletOpenShift' => $this->cashierShiftService->summarizeForDisplay($outletOpenShift),
