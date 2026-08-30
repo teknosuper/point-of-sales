@@ -1,5 +1,6 @@
 // Modal riwayat transaksi POS (sebelumnya inline di Transactions/Index.jsx).
 // Dipisah agar halaman POS tidak membawa ~700 baris modal setiap dibaca/diedit.
+import { useEffect, useState } from "react";
 import { Link } from "@inertiajs/react";
 import {
     IconHistory,
@@ -9,6 +10,7 @@ import {
     IconReceipt,
     IconPrinter,
     IconCheck,
+    IconSearch,
 } from "@/Utils/icons";
 import { formatPrice } from "@/Utils/posFormat";
 import {
@@ -40,17 +42,25 @@ export default function HistoryModal({
     isRequeueingHistoryReceipt,
     isConfirmingHistoryPayment,
 }) {
+    const [mobilePane, setMobilePane] = useState("list");
+
+    useEffect(() => {
+        if (open) {
+            setMobilePane("list");
+        }
+    }, [open]);
+
     if (!open) {
         return null;
     }
 
     return (
-        <div className="fixed inset-0 z-[76] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[76] flex items-end justify-center sm:items-center sm:p-4">
             <div
                 className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
                 onClick={closeHistoryModal}
             />
-            <div className="relative z-10 flex max-h-[calc(100dvh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] bg-white shadow-2xl dark:bg-slate-900 sm:max-h-[calc(100vh-2rem)] sm:rounded-3xl">
+            <div className="relative z-10 flex h-[100dvh] w-full max-w-6xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-900 sm:h-auto sm:max-h-[calc(100vh-2rem)] sm:rounded-3xl">
                 <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:items-center sm:gap-4 sm:px-5 sm:py-4">
                     <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-600">
@@ -79,23 +89,59 @@ export default function HistoryModal({
                     </button>
                 </div>
 
+                <div className="flex shrink-0 gap-1 border-b border-slate-200 bg-slate-50/50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/30 lg:hidden">
+                    <button
+                        type="button"
+                        onClick={() => setMobilePane("list")}
+                        className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                            mobilePane === "list"
+                                ? "bg-white text-primary-600 shadow-sm dark:bg-slate-800 dark:text-primary-400"
+                                : "text-slate-500 dark:text-slate-400"
+                        }`}
+                    >
+                        Daftar
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setMobilePane("detail")}
+                        disabled={!selectedHistoryTransaction}
+                        className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                            mobilePane === "detail"
+                                ? "bg-white text-primary-600 shadow-sm dark:bg-slate-800 dark:text-primary-400"
+                                : "text-slate-500 dark:text-slate-400"
+                        }`}
+                    >
+                        Detail
+                    </button>
+                </div>
+
                 <div className="grid min-h-0 flex-1 lg:grid-cols-[360px,1fr]">
-                    <div className="flex min-h-0 flex-col border-b border-slate-200 dark:border-slate-800 lg:border-b-0 lg:border-r">
+                    <div
+                        className={`min-h-0 flex-col border-b border-slate-200 dark:border-slate-800 lg:flex lg:border-b-0 lg:border-r ${
+                            mobilePane === "list" ? "flex" : "hidden"
+                        }`}
+                    >
                         <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:px-5 sm:py-4">
                             <div className="grid gap-3">
                                 <div className="flex items-center gap-2">
-                                    <input
-                                        type="text"
-                                        value={historyFilters.q}
-                                        onChange={(event) =>
-                                            updateHistoryFilter(
-                                                "q",
-                                                event.target.value
-                                            )
-                                        }
-                                        placeholder="Cari invoice, pelanggan, kasir..."
-                                        className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-                                    />
+                                    <div className="relative flex-1">
+                                        <IconSearch
+                                            size={18}
+                                            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={historyFilters.q}
+                                            onChange={(event) =>
+                                                updateHistoryFilter(
+                                                    "q",
+                                                    event.target.value
+                                                )
+                                            }
+                                            placeholder="Cari invoice, pelanggan, kasir, atau keterangan..."
+                                            className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm text-slate-800 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                        />
+                                    </div>
                                     <button
                                         type="button"
                                         onClick={() =>
@@ -274,7 +320,7 @@ export default function HistoryModal({
                                 </div>
                             </div>
                         </div>
-                        <div className="min-h-0 max-h-[26vh] flex-1 overflow-y-auto px-3 py-3 sm:max-h-none">
+                        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
                             <div className="space-y-2">
                                 {historyTransactions.length > 0 ? (
                                     historyTransactions.map(
@@ -296,11 +342,14 @@ export default function HistoryModal({
                                                         transaction.id
                                                     }
                                                     type="button"
-                                                    onClick={() =>
+                                                    onClick={() => {
                                                         setSelectedHistoryTransactionId(
                                                             transaction.id
-                                                        )
-                                                    }
+                                                        );
+                                                        setMobilePane(
+                                                            "detail"
+                                                        );
+                                                    }}
                                                     className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
                                                         isSelected
                                                             ? "border-primary-300 bg-primary-50 shadow-sm dark:border-primary-700 dark:bg-primary-950/30"
@@ -337,10 +386,13 @@ export default function HistoryModal({
                                                             <p className="truncate text-sm text-slate-700 dark:text-slate-200">
                                                                 {transaction.customer
                                                                     ?.name ||
+                                                                    transaction.order_reference_name ||
                                                                     "Pelanggan Umum"}
                                                             </p>
                                                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                                {transaction.total_items} item
+                                                                {transaction.order_reference_notes
+                                                                    ? `${transaction.total_items} item · ${transaction.order_reference_notes}`
+                                                                    : `${transaction.total_items} item`}
                                                             </p>
                                                         </div>
                                                         <p className="shrink-0 text-sm font-bold text-slate-900 dark:text-white">
@@ -425,7 +477,11 @@ export default function HistoryModal({
                         </div>
                     </div>
 
-                    <div className="min-h-0 overflow-y-auto border-t border-slate-200 dark:border-slate-800 lg:border-t-0">
+                    <div
+                        className={`min-h-0 flex-col overflow-y-auto border-t border-slate-200 dark:border-slate-800 lg:flex lg:border-t-0 ${
+                            mobilePane === "detail" ? "flex" : "hidden"
+                        }`}
+                    >
                         {selectedHistoryTransaction ? (
                             <div className="space-y-4 px-4 py-4 sm:space-y-5 sm:px-5 sm:py-5">
                                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">

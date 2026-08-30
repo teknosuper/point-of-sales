@@ -396,6 +396,7 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
 
     // route transaction
     Route::get('/transactions', [TransactionController::class, 'index'])->middleware('permission:transactions-access')->name('transactions.index');
+    Route::get('/transactions/failed-print-notifications', [TransactionController::class, 'failedPrintNotifications'])->middleware('permission:transactions-access')->name('transactions.failed-print-notifications');
     Route::get('/transactions/product-catalog', [TransactionController::class, 'productCatalog'])->middleware('permission:transactions-access')->name('transactions.product-catalog');
     Route::get('/transactions/offline-bootstrap', [TransactionController::class, 'offlineBootstrap'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.offline-bootstrap');
     Route::get('/transactions/active-cart', [TransactionController::class, 'activeCart'])->middleware(['permission:transactions-access', 'active_shift'])->name('transactions.active-cart');

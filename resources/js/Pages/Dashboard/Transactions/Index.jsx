@@ -143,7 +143,7 @@ export default function Index({
     tenantOutlets: tenantOutletOptions = [],
     mainCategories = [],
     operationalSettings = null,
-    failedPrintNotifications = [],
+    failedPrintNotifications: _failedPrintNotificationsProp = [],
     posRemindMinutes = 2,
 }) {
     const {
@@ -197,6 +197,7 @@ export default function Index({
     const [orderType, setOrderType] = useState("dine_in");
     const [draftOrderType, setDraftOrderType] = useState("dine_in");
     const [showFailedPrintModal, setShowFailedPrintModal] = useState(false);
+    const [failedPrintNotifications, setFailedPrintNotifications] = useState([]);
     const [modifierModalOrderType, setModifierModalOrderType] = useState(
         "dine_in"
     );
@@ -342,6 +343,20 @@ export default function Index({
             isOfflineBannerExpanded ? "1" : "0"
         );
     }, [isOfflineBannerExpanded]);
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            fetch(route('transactions.failed-print-notifications'))
+                .then((res) => res.json())
+                .then((json) => {
+                    if (Array.isArray(json?.data) && json.data.length > 0) {
+                        setFailedPrintNotifications(json.data);
+                    }
+                })
+                .catch(() => {});
+        }, 1500);
+        return () => clearTimeout(timer);
+    }, []);
 
     useEffect(() => {
         if (failedPrintNotifications.length === 0) return;

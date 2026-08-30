@@ -1576,7 +1576,7 @@ class ProductController extends Controller
         $renameQuery = ProductRenameRequest::query()
             ->pending()
             ->with([
-                'product:id,title,description,image,sku,buy_price,sell_price,stock,category_id,tenant_outlet_id',
+                'product:id,title,description,image,barcode,sku,buy_price,sell_price,stock,category_id,tenant_outlet_id',
                 'product.category:id,name',
                 'product.tenantOutlet:id,name,code',
                 'requester:id,name',

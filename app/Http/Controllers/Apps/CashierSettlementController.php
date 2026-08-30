@@ -1439,10 +1439,11 @@ class CashierSettlementController extends Controller
             ->latest('delivered_at')
             ->get();
 
-        $dayAllocationRows = $dayAllocationModels
+        $dayAllocationRows = collect($dayAllocationModels
             ->map(fn (TransactionTenantAllocation $allocation) => $this->mapAllocationDetailRow($allocation, $ownerMarkupTotals))
             ->when(($filters['entry_type'] ?? '') === 'sales_return', fn (Collection $rows) => $rows->filter(fn (array $row) => false))
-            ->values();
+            ->values()
+            ->all());
 
         $dayReturnRows = $returnRows
             ->filter(fn (array $row) => ($row['date_key'] ?? '') === $selectedDay)

@@ -28,6 +28,7 @@ const defaultFilters = {
     end_date: "",
     customer_scope: "",
     product: "",
+    notes: "",
 };
 
 const formatCurrency = (value = 0) =>
@@ -97,7 +98,8 @@ const History = ({ transactions, filters, stats = {} }) => {
         filterData.start_date ||
         filterData.end_date ||
         filterData.customer_scope ||
-        filterData.product;
+        filterData.product ||
+        filterData.notes;
 
     return (
         <>
@@ -144,7 +146,7 @@ const History = ({ transactions, filters, stats = {} }) => {
                 {showFilters && (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 animate-slide-up">
                         <form onSubmit={applyFilters}>
-                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
+                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                         Nomor Invoice
@@ -173,6 +175,23 @@ const History = ({ transactions, filters, stats = {} }) => {
                                         onChange={(e) =>
                                             handleChange(
                                                 "product",
+                                                e.target.value
+                                            )
+                                        }
+                                        className="w-full h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                        Keterangan
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="Nama pelanggan atau catatan..."
+                                        value={filterData.notes}
+                                        onChange={(e) =>
+                                            handleChange(
+                                                "notes",
                                                 e.target.value
                                             )
                                         }
