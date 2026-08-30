@@ -1537,6 +1537,116 @@ class ProductController extends Controller
         return back()->with('success', 'Status penalty produk berhasil diperbarui.');
     }
 
+    public function similarNames(Request $request): JsonResponse
+    {
+        $products = $this->applyWorkspaceProductScope(Product::query(), $request)
+            ->where('publish_status', 'approved')
+            ->select([
+                'id',
+                'title',
+                'sell_price',
+                'buy_price',
+                'stock',
+                'image',
+                'category_id',
+                'tenant_outlet_id',
+                'sku',
+                'barcode',
+            ])
+            ->with([
+                'category:id,name',
+                'tenantOutlet:id,name,code',
+            ])
+            ->orderBy('title')
+            ->get();
+
+        $normalize = function (string $title): string {
+            $title = mb_strtolower(trim($title));
+            $title = str_replace(
+                ['é', 'è', 'ê', 'ë', 'à', 'â', 'ä', 'ù', 'û', 'ü', 'ô', 'ö', 'î', 'ï', 'ç', 'ñ', 'ü'],
+                ['e', 'e', 'e', 'e', 'a', 'a', 'a', 'u', 'u', 'u', 'o', 'o', 'i', 'i', 'c', 'n', 'u'],
+                $title
+            );
+            $title = preg_replace('/[^a-z0-9 ]/', ' ', $title);
+            $title = preg_replace('/\s+/', ' ', $title);
+
+            return trim($title);
+        };
+
+        $processed = $products->map(fn (Product $p) => [
+            'id' => $p->id,
+            'title' => $p->title,
+            'normalized' => $normalize($p->title),
+            'sell_price' => $p->sell_price,
+            'buy_price' => $p->buy_price,
+            'stock' => $p->stock,
+            'image' => $p->image,
+            'sku' => $p->sku,
+            'barcode' => $p->barcode,
+            'category' => $p->relationLoaded('category') ? $p->category?->name : null,
+            'tenant_outlet' => $p->relationLoaded('tenantOutlet') ? $p->tenantOutlet?->name : null,
+            'tenant_outlet_code' => $p->relationLoaded('tenantOutlet') ? $p->tenantOutlet?->code : null,
+        ]);
+
+        // Group by normalized first 3 words (coarse bucket)
+        $buckets = [];
+        foreach ($processed as $item) {
+            $words = array_values(array_filter(explode(' ', $item['normalized']), fn ($w) => mb_strlen($w) > 2));
+            $key = implode(' ', array_slice($words, 0, 3)) ?: $item['normalized'];
+            $buckets[$key][] = $item;
+        }
+
+        // Within each bucket, find similar pairs using similar_text
+        $groups = [];
+        foreach ($buckets as $key => $bucket) {
+            if (count($bucket) < 2) {
+                continue;
+            }
+
+            $used = [];
+            for ($i = 0; $i < count($bucket); $i++) {
+                if (isset($used[$i])) {
+                    continue;
+                }
+                $cluster = [$bucket[$i]];
+                $used[$i] = true;
+
+                for ($j = $i + 1; $j < count($bucket); $j++) {
+                    if (isset($used[$j])) {
+                        continue;
+                    }
+                    $similarity = 0;
+                    similar_text($bucket[$i]['normalized'], $bucket[$j]['normalized'], $similarity);
+                    if ($similarity >= 65) {
+                        $cluster[] = $bucket[$j];
+                        $used[$j] = true;
+                    }
+                }
+
+                if (count($cluster) >= 2) {
+                    $groups[] = [
+                        'key' => $key,
+                        'products' => $cluster,
+                        'count' => count($cluster),
+                    ];
+                }
+            }
+        }
+
+        // Sort groups by count desc, then by key
+        usort($groups, fn ($a, $b) => $b['count'] <=> $a['count'] ?: strcmp($a['key'], $b['key']));
+
+        return response()->json([
+            'success' => true,
+            'data' => $groups,
+            'meta' => [
+                'total_groups' => count($groups),
+                'total_products' => array_sum(array_column($groups, 'count')),
+                'total_scanned' => $products->count(),
+            ],
+        ]);
+    }
+
     public function reviewQueue(Request $request)
     {
         $outlet = $this->outletResolver->resolve($request, $request->user());

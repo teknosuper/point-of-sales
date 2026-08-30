@@ -168,6 +168,10 @@ Route::group(['prefix' => 'dashboard', 'middleware' => ['auth']], function () {
         ->middleware('permission:products-review')
         ->name('products.review');
 
+    Route::get('products/similar-names', [ProductController::class, 'similarNames'])
+        ->middleware(['permission:products-access'])
+        ->name('products.similar-names');
+
     Route::resource('products', ProductController::class)
         ->middlewareFor(['index', 'show'], 'permission:products-access')
         ->middlewareFor(['create', 'store'], 'permission:products-create')
