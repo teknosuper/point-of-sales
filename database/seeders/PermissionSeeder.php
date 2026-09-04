@@ -160,6 +160,10 @@ class PermissionSeeder extends Seeder
         $create('supplier-returns-create');
         $create('supplier-returns-update');
 
+        // financial visibility — markup owner tersembunyi secara default
+        // hanya user yang secara eksplisit di-assign permission ini yang bisa melihat angka markup
+        $create('view-markup-details');
+
         app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }

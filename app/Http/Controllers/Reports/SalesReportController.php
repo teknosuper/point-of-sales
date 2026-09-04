@@ -212,8 +212,14 @@ class SalesReportController extends Controller
                 $settlementMutations = $this->buildSettlementMutationReport($settlementMutationRows);
             }
 
+            // Tab owner_markup hanya tersedia bagi user dengan permission view-markup-details.
+            // Jika user tidak punya permission, arahkan ke closing agar tidak ada data markup yang bocor.
             if ($settlementView === 'owner_markup') {
-                $ownerMarkupMutations = $this->buildOwnerMarkupMutationReport($settlementMutationRows);
+                if ($canViewMarkup) {
+                    $ownerMarkupMutations = $this->buildOwnerMarkupMutationReport($settlementMutationRows);
+                } else {
+                    $settlementView = 'closing';
+                }
             }
 
             if ($settlementView === 'cash') {
@@ -240,8 +246,63 @@ class SalesReportController extends Controller
                         $tenantOutletIds
                     );
 
+                    $recon_tenant_rights   = (int) $settlementMutationRows->sum('mutation_total');
+                    $recon_owner_markup    = (int) $settlementMutationRows->sum('owner_markup_total');
+                    $recon_gross           = (int) $settlementMutationRows->sum('gross_total');
+                    $recon_diff            = $recon_gross - $recon_tenant_rights - $recon_owner_markup;
+
+                    // Rekonsiliasi per-tenant: gross, hak net, markup, approved (cumulative), outstanding
+                    $reconByTenant = $settlementMutationRows
+                        ->filter(fn ($r) => ($r['entry_type'] ?? '') === 'allocation')
+                        ->groupBy('tenant_outlet_id')
+                        ->map(function ($rows, $tenantId) use ($tenantOutletIds) {
+                            $tenantGross      = (int) $rows->sum('gross_total');
+                            $tenantRights     = (int) $rows->sum('mutation_total');
+                            $tenantMarkup     = (int) $rows->sum('owner_markup_total');
+                            $tenantDiff       = $tenantGross - $tenantRights - $tenantMarkup;
+                            return [
+                                'tenant_outlet_id'  => $tenantId,
+                                'tenant_name'       => $rows->first()['tenant_name'] ?? 'Tenant',
+                                'gross_total'       => $tenantGross,
+                                'tenant_rights_total' => $tenantRights,
+                                'owner_markup_total'  => $tenantMarkup,
+                                'reconciliation_diff' => $tenantDiff,
+                            ];
+                        })
+                        ->sortByDesc('gross_total')
+                        ->values();
+
+                    // Gabungkan approved + outstanding per tenant dari payout summary
+                    $tenantApprovedByOutlet = CashierSettlementRequest::query()
+                        ->whereNull('cashier_shift_id')
+                        ->whereIn('outlet_id', $tenantOutletIds->all())
+                        ->where('status', CashierSettlementRequest::STATUS_APPROVED)
+                        ->selectRaw('outlet_id, COALESCE(SUM(approved_amount),0) as approved_total')
+                        ->groupBy('outlet_id')
+                        ->pluck('approved_total', 'outlet_id');
+                    $tenantPendingByOutlet = CashierSettlementRequest::query()
+                        ->whereNull('cashier_shift_id')
+                        ->whereIn('outlet_id', $tenantOutletIds->all())
+                        ->where('status', CashierSettlementRequest::STATUS_PENDING)
+                        ->selectRaw('outlet_id, COALESCE(SUM(requested_amount),0) as pending_total')
+                        ->groupBy('outlet_id')
+                        ->pluck('pending_total', 'outlet_id');
+
+                    $reconByTenant = $reconByTenant->map(function ($row) use ($tenantApprovedByOutlet, $tenantPendingByOutlet) {
+                        $approved  = (int) ($tenantApprovedByOutlet->get($row['tenant_outlet_id'], 0) ?? 0);
+                        $pending   = (int) ($tenantPendingByOutlet->get($row['tenant_outlet_id'], 0) ?? 0);
+                        $outstanding = max(0, $row['tenant_rights_total'] - $approved);
+                        return array_merge($row, [
+                            'approved_total'     => $approved,
+                            'pending_total'      => $pending,
+                            'outstanding_total'  => $outstanding,
+                            // cek: hak tenant = approved + outstanding (harus 0)
+                            'payout_diff'        => $row['tenant_rights_total'] - $approved - $outstanding,
+                        ]);
+                    })->values()->all();
+
                     $ownerCashSummary = [
-                        'tenant_rights_total' => (int) $settlementMutationRows->sum('mutation_total'),
+                        'tenant_rights_total' => $recon_tenant_rights,
                         'tenant_approved_total' => (int) ($tenantPayoutSummary['approved_cumulative_total'] ?? 0),
                         'tenant_approved_pending_payment_total' => (int) ($tenantPayoutSummary['approved_pending_payment_total'] ?? 0),
                         'tenant_paid_total' => (int) ($tenantPayoutSummary['paid_cumulative_total'] ?? 0),
@@ -256,11 +317,15 @@ class SalesReportController extends Controller
                         'actual_cash_after_rights_total' => (int) ($metricSummary['revenue_total'] ?? 0)
                             - (int) ($tenantPayoutSummary['balance_total'] ?? 0)
                             - (int) ($expenseSummary['expense_total'] ?? 0),
-                        'owner_markup_total' => (int) $settlementMutationRows->sum('owner_markup_total'),
-                        'owner_markup_remaining_total' => (int) $settlementMutationRows->sum('owner_markup_total')
+                        'owner_markup_total' => $recon_owner_markup,
+                        'owner_markup_remaining_total' => $recon_owner_markup
                             - (int) ($expenseSummary['expense_paid_cumulative_total'] ?? 0),
-                        'owner_markup_after_expense_total' => (int) $settlementMutationRows->sum('owner_markup_total')
+                        'owner_markup_after_expense_total' => $recon_owner_markup
                             - (int) ($expenseSummary['expense_total'] ?? 0),
+                        // --- Rekonsiliasi akuntansi ---
+                        'gross_allocation_total'  => $recon_gross,
+                        'reconciliation_diff'     => $recon_diff,
+                        'tenant_reconciliation_rows' => $reconByTenant,
                     ];
                 }
 
@@ -409,6 +474,30 @@ class SalesReportController extends Controller
             )
             : [];
 
+        $canViewMarkup = (bool) $request->user()?->can('view-markup-details');
+
+        // Sembunyikan semua angka markup dari response jika user tidak punya permission.
+        // Ini memastikan data tidak bocor bahkan via DevTools Network tab.
+        if (! $canViewMarkup) {
+            if (isset($ownerCashSummary)) {
+                $ownerCashSummary['owner_markup_total'] = null;
+                $ownerCashSummary['owner_markup_remaining_total'] = null;
+                $ownerCashSummary['owner_markup_after_expense_total'] = null;
+                $ownerCashSummary['gross_allocation_total'] = null;
+                $ownerCashSummary['reconciliation_diff'] = null;
+                $ownerCashSummary['tenant_reconciliation_rows'] = [];
+            }
+            $ownerToppingBreakdown = [];
+            // Null-kan markup di mutation rows agar tidak bocor via allocations/mutations props
+            if (isset($settlementMutationRows)) {
+                $settlementMutationRows = $settlementMutationRows->map(function ($row) {
+                    $row['owner_markup_total'] = null;
+                    $row['owner_markup_unit_price'] = null;
+                    return $row;
+                });
+            }
+        }
+
         return Inertia::render('Dashboard/Reports/Sales', [
             'transactions' => $transactions,
             'summary' => $summary,
@@ -448,10 +537,14 @@ class SalesReportController extends Controller
                     'expense_paid_cumulative_total' => (int) ($ownerCashSummary['expense_paid_cumulative_total'] ?? 0),
                     'actual_cash_remaining_total' => (int) ($ownerCashSummary['actual_cash_remaining_total'] ?? 0),
                     'actual_cash_after_rights_total' => (int) ($ownerCashSummary['actual_cash_after_rights_total'] ?? 0),
-                    'owner_markup_total' => (int) ($ownerCashSummary['owner_markup_total'] ?? 0),
-                    'owner_markup_remaining_total' => (int) ($ownerCashSummary['owner_markup_remaining_total'] ?? 0),
-                    'owner_markup_after_expense_total' => (int) ($ownerCashSummary['owner_markup_after_expense_total'] ?? 0),
-                ],
+                     'owner_markup_total' => (int) ($ownerCashSummary['owner_markup_total'] ?? 0),
+                     'owner_markup_remaining_total' => (int) ($ownerCashSummary['owner_markup_remaining_total'] ?? 0),
+                     'owner_markup_after_expense_total' => (int) ($ownerCashSummary['owner_markup_after_expense_total'] ?? 0),
+                     // Rekonsiliasi akuntansi
+                     'gross_allocation_total' => (int) ($ownerCashSummary['gross_allocation_total'] ?? 0),
+                     'reconciliation_diff' => (int) ($ownerCashSummary['reconciliation_diff'] ?? 0),
+                     'tenant_reconciliation_rows' => $ownerCashSummary['tenant_reconciliation_rows'] ?? [],
+                 ],
                 'top_tenants' => $topTenants,
                 'allocations' => $tenantAllocations,
                 'requests' => $settlementRequests,
@@ -481,6 +574,7 @@ class SalesReportController extends Controller
                 'timezone' => ReportTimezone::timezone(),
                 'timezone_label' => ReportTimezone::timezoneLabel(),
             ],
+            'canViewMarkup' => $canViewMarkup,
         ]);
     }
 
@@ -680,6 +774,7 @@ class SalesReportController extends Controller
                 'timezone' => ReportTimezone::timezone(),
                 'timezone_label' => ReportTimezone::timezoneLabel(),
             ],
+            'canViewMarkup' => (bool) $request->user()?->can('view-markup-details'),
         ]);
     }
 
@@ -1185,6 +1280,7 @@ class SalesReportController extends Controller
     {
         $activeOutlet = $this->outletResolver->resolve($request, $request->user());
         $outletId = $activeOutlet?->id;
+        $canViewMarkup = (bool) $request->user()?->can('view-markup-details');
         $filters = [
             'start_date' => $request->input('start_date'),
             'end_date' => $request->input('end_date'),
@@ -1221,30 +1317,44 @@ class SalesReportController extends Controller
 
         $filename = 'closing-bulanan-'.now()->format('Ymd-His').'.csv';
 
-        return response()->streamDownload(function () use ($rows) {
+        return response()->streamDownload(function () use ($rows, $canViewMarkup) {
             $handle = fopen('php://output', 'w');
-            fputcsv($handle, [
+            $header = [
                 'bulan',
+                'gross_alokasi_total',
                 'penjualan_total',
                 'hak_tenant_total',
-                'markup_owner_total',
+            ];
+            if ($canViewMarkup) {
+                $header[] = 'markup_owner_total';
+                $header[] = 'selisih_rekonsiliasi';
+                $header[] = 'sisa_markup_owner_total';
+            }
+            $header = array_merge($header, [
                 'expense_paid_total',
                 'sisa_kas_total',
-                'sisa_markup_owner_total',
                 'jumlah_hari',
             ]);
+            fputcsv($handle, $header);
 
             foreach ($rows as $row) {
-                fputcsv($handle, [
+                $data = [
                     $row['month_label'] ?? $row['month_key'] ?? '',
+                    (int) ($row['gross_allocation_total'] ?? 0),
                     (int) ($row['revenue_total'] ?? 0),
                     (int) ($row['tenant_rights_total'] ?? 0),
-                    (int) ($row['owner_markup_total'] ?? 0),
+                ];
+                if ($canViewMarkup) {
+                    $data[] = (int) ($row['owner_markup_total'] ?? 0);
+                    $data[] = (int) ($row['reconciliation_diff'] ?? 0);
+                    $data[] = (int) ($row['owner_markup_remaining_total'] ?? 0);
+                }
+                $data = array_merge($data, [
                     (int) ($row['expense_paid_total'] ?? 0),
                     (int) ($row['remaining_cash_total'] ?? 0),
-                    (int) ($row['owner_markup_remaining_total'] ?? 0),
                     (int) ($row['days_count'] ?? 0),
                 ]);
+                fputcsv($handle, $data);
             }
 
             fclose($handle);
@@ -2253,6 +2363,9 @@ class SalesReportController extends Controller
         $tenantRightsByDate = $settlementMutationRows
             ->groupBy('date_key')
             ->map(fn (Collection $items) => (int) $items->sum('mutation_total'));
+        $grossAllocationByDate = $settlementMutationRows
+            ->groupBy('date_key')
+            ->map(fn (Collection $items) => (int) $items->sum('gross_total'));
         $tenantOutletIds = $this->resolveSettlementTenantOutletIds($filters);
 
         $periodFilters = [...$filters, 'start_date' => $startDate, 'end_date' => $filters['end_date']];
@@ -2310,7 +2423,8 @@ class SalesReportController extends Controller
             $tenantPaidByDate,
             $tenantPendingByDate,
             $ownerMarkupByDate,
-            $tenantRightsByDate
+            $tenantRightsByDate,
+            $grossAllocationByDate
         ) {
             $day = Carbon::createFromFormat('Y-m-d', $startDate, ReportTimezone::timezone())->addDays($offset)->format('Y-m-d');
             $dayRevenueTotal = (int) ($revenueByDate->get($day, 0) ?? 0);
@@ -2320,6 +2434,7 @@ class SalesReportController extends Controller
             $tenantPendingTotal = (int) ($tenantPendingByDate->get($day, 0) ?? 0);
             $ownerMarkupTotal = (int) ($ownerMarkupByDate->get($day, 0) ?? 0);
             $tenantRightsTotal = (int) ($tenantRightsByDate->get($day, 0) ?? 0);
+            $grossAllocationTotal = (int) ($grossAllocationByDate->get($day, 0) ?? 0);
 
             $revenueRunning += $dayRevenueTotal;
             $expensePaidRunning += $expensePaidTotal;
@@ -2336,6 +2451,7 @@ class SalesReportController extends Controller
                 'expense_paid_total' => $expensePaidTotal,
                 'expense_paid_cumulative_total' => $expensePaidRunning,
                 'tenant_rights_total' => $tenantRightsTotal,
+                'gross_allocation_total' => $grossAllocationTotal,
                 'tenant_approved_total' => $tenantApprovedTotal,
                 'tenant_approved_cumulative_total' => $tenantApprovedRunning,
                 'tenant_approved_pending_payment_total' => max(0, $tenantApprovedRunning - $tenantPaidRunning),
@@ -2363,12 +2479,14 @@ class SalesReportController extends Controller
                     'month_key' => $monthKey,
                     'month_label' => Carbon::createFromFormat('Y-m', $monthKey)->translatedFormat('F Y'),
                     'revenue_total' => (int) $items->sum('revenue_total'),
+                    'gross_allocation_total' => (int) $items->sum('gross_allocation_total'),
                     'tenant_rights_total' => (int) $items->sum('tenant_rights_total'),
                     'tenant_approved_cumulative_total' => (int) ($last['tenant_approved_cumulative_total'] ?? 0),
                     'tenant_paid_cumulative_total' => (int) ($last['tenant_paid_cumulative_total'] ?? 0),
                     'tenant_outstanding_total' => (int) ($last['tenant_outstanding_total'] ?? 0),
                     'tenant_pending_request_cumulative_total' => (int) ($last['tenant_pending_request_cumulative_total'] ?? 0),
                     'owner_markup_total' => (int) $items->sum('owner_markup_total'),
+                    'reconciliation_diff' => (int) $items->sum('gross_allocation_total') - (int) $items->sum('tenant_rights_total') - (int) $items->sum('owner_markup_total'),
                     'expense_paid_total' => (int) $items->sum('expense_paid_total'),
                     'remaining_cash_total' => (int) ($last['remaining_cash_total'] ?? 0),
                     'owner_markup_remaining_total' => (int) ($last['owner_markup_remaining_total'] ?? 0),

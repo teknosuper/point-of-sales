@@ -760,7 +760,7 @@ export default function Create({
                                     </div>
                                     <div>
                                         <p className="text-sm font-medium text-success-700 dark:text-success-400">
-                                            Markup Owner per Item
+                                            Harga Jual Kasir per Item
                                         </p>
                                         <p className="mt-1 text-2xl font-bold text-success-600 dark:text-success-500">
                                             + Rp{" "}

@@ -165,6 +165,7 @@ const Sales = ({
     activeTab = "overview",
     settlementView = "withdraw",
     reportMeta = {},
+    canViewMarkup = false,
 }) => {
     const page = usePage();
     const auth = page.props?.auth ?? {};
@@ -571,26 +572,28 @@ const Sales = ({
             value: unresolvedTenantObligationTotal,
             tone: "negative",
         },
-        {
-            label: "Hak Owner",
-            section: true,
-        },
-        {
-            label: isOwnerTenantView ? "H. Hak Owner Bruto dari Tenant Ini" : "H. Hak Owner Bruto",
-            note: isOwnerTenantView
-                ? "Pendapatan owner yang berasal dari markup produk dan topping tenant aktif sebelum dipotong beban owner."
-                : "Pendapatan owner dari markup produk dan topping tenant sebelum dipotong beban owner.",
-            value: settlementSummary.owner_markup_total ?? 0,
-            tone: "info",
-        },
-        {
-            label: isOwnerTenantView ? "I. Sisa Hak Owner Tenant Ini" : "I. Sisa Hak Owner",
-            note: isOwnerTenantView
-                ? "Hak owner dari tenant aktif setelah expense paid pada periode aktif."
-                : "Hak owner setelah expense paid pada periode aktif.",
-            value: settlementSummary.owner_markup_remaining_total ?? 0,
-            emphasis: true,
-        },
+        ...(canViewMarkup ? [
+            {
+                label: "Hak Owner",
+                section: true,
+            },
+            {
+                label: isOwnerTenantView ? "H. Hak Owner Bruto dari Tenant Ini" : "H. Hak Owner Bruto",
+                note: isOwnerTenantView
+                    ? "Pendapatan owner yang berasal dari markup produk dan topping tenant aktif sebelum dipotong beban owner."
+                    : "Pendapatan owner dari markup produk dan topping tenant sebelum dipotong beban owner.",
+                value: settlementSummary.owner_markup_total ?? 0,
+                tone: "info",
+            },
+            {
+                label: isOwnerTenantView ? "I. Sisa Hak Owner Tenant Ini" : "I. Sisa Hak Owner",
+                note: isOwnerTenantView
+                    ? "Hak owner dari tenant aktif setelah expense paid pada periode aktif."
+                    : "Hak owner setelah expense paid pada periode aktif.",
+                value: settlementSummary.owner_markup_remaining_total ?? 0,
+                emphasis: true,
+            },
+        ] : []),
         {
             label: "Kas dan Expense",
             section: true,
@@ -612,7 +615,40 @@ const Sales = ({
             value: settlementSummary.actual_cash_remaining_total ?? 0,
             emphasis: true,
         },
-    ]), [isOwnerTenantView, unresolvedTenantObligationTotal, summary?.revenue_total, settlementSummary]);
+        ...(canViewMarkup ? [
+            {
+                label: "Rekonsiliasi Akuntansi",
+                section: true,
+            },
+            {
+                label: "L. Gross Alokasi Tenant (Subtotal)",
+                note: "Total harga bayar pelanggan dari seluruh alokasi tenant yang sudah delivered pada periode ini. Nilai ini termasuk markup owner di dalamnya.",
+                value: settlementSummary.gross_allocation_total ?? 0,
+                tone: "positive",
+            },
+            {
+                label: "M. Hak Tenant Bersih",
+                note: "Hak tenant net setelah dikurangi markup owner, dihitung dari base_price item per alokasi. Harus = L - N.",
+                value: settlementSummary.tenant_rights_total ?? 0,
+                tone: "negative",
+                prefix: "-",
+            },
+            {
+                label: "N. Markup Owner",
+                note: "Pendapatan owner dari selisih harga jual ke pelanggan vs base price tenant. Harus = L - M.",
+                value: settlementSummary.owner_markup_total ?? 0,
+                tone: "negative",
+                prefix: "-",
+            },
+            {
+                label: "O. Selisih Pembulatan (harus = 0)",
+                note: "Selisih antara gross alokasi dan penjumlahan hak tenant + markup owner. Nilai ini harus nol atau sangat kecil (hanya pembulatan). Jika besar, ada kesalahan kalkulasi.",
+                value: settlementSummary.reconciliation_diff ?? 0,
+                tone: (settlementSummary.reconciliation_diff ?? 0) === 0 ? "positive" : "negative",
+                emphasis: true,
+            },
+        ] : []),
+    ]), [canViewMarkup, isOwnerTenantView, unresolvedTenantObligationTotal, summary?.revenue_total, settlementSummary]);
 
     const hasActiveFilters =
         filterData.invoice ||
@@ -1906,17 +1942,19 @@ const Sales = ({
                             </button>
                             {!isTenantWorkspace ? (
                                 <>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleSettlementViewChange("owner_markup")}
-                                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                                            settlementView === "owner_markup"
-                                                ? "bg-primary-600 text-white"
-                                                : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800 dark:hover:bg-slate-800"
-                                        }`}
-                                    >
-                                        Mutasi Markup Owner
-                                    </button>
+                                    {canViewMarkup && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleSettlementViewChange("owner_markup")}
+                                            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                                                settlementView === "owner_markup"
+                                                    ? "bg-primary-600 text-white"
+                                                    : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800 dark:hover:bg-slate-800"
+                                            }`}
+                                        >
+                                            Mutasi Markup Owner
+                                        </button>
+                                    )}
                                     <button
                                         type="button"
                                         onClick={() => handleSettlementViewChange("cash")}
@@ -1978,18 +2016,22 @@ const Sales = ({
                                     value={formatCurrency(settlementSummary.actual_cash_remaining_total ?? 0)}
                                     description={`Setelah payout approved & expense paid. Sisa konservatif ${formatCurrency(settlementSummary.actual_cash_after_rights_total ?? 0)}`}
                                 />
-                                <SummaryCard
-                                    icon={<IconShoppingBag />}
-                                    title="Markup Owner"
-                                    value={formatCurrency(settlementSummary.owner_markup_total ?? 0)}
-                                    description="Akumulasi markup owner dari transaksi tenant pada scope report"
-                                />
-                                <SummaryCard
-                                    icon={<IconWallet />}
-                                    title="Sisa Markup Owner"
-                                    value={formatCurrency(settlementSummary.owner_markup_remaining_total ?? 0)}
-                                    description={`Setelah expense paid. Sisa konservatif ${formatCurrency(settlementSummary.owner_markup_after_expense_total ?? 0)}`}
-                                />
+                                {canViewMarkup && (
+                                    <>
+                                        <SummaryCard
+                                            icon={<IconShoppingBag />}
+                                            title="Markup Owner"
+                                            value={formatCurrency(settlementSummary.owner_markup_total ?? 0)}
+                                            description="Akumulasi markup owner dari transaksi tenant pada scope report"
+                                        />
+                                        <SummaryCard
+                                            icon={<IconWallet />}
+                                            title="Sisa Markup Owner"
+                                            value={formatCurrency(settlementSummary.owner_markup_remaining_total ?? 0)}
+                                            description={`Setelah expense paid. Sisa konservatif ${formatCurrency(settlementSummary.owner_markup_after_expense_total ?? 0)}`}
+                                        />
+                                    </>
+                                )}
                             </div>
                         ) : null}
                         {settlementView === "closing" ? (
@@ -2014,6 +2056,7 @@ const Sales = ({
                                                   : "Hasil mutasi saldo tenant pada scope dan periode aktif: transaksi delivered tenant dikurangi retur selesai."}
                                         </div>
                                     </div>
+                                    {canViewMarkup && (
                                     <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 dark:border-blue-900/40 dark:bg-blue-950/10">
                                         <div className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">{isOwnerTenantView ? "Markup Owner dari Tenant Ini" : "Markup Owner Periode"}</div>
                                         <div className="mt-2 text-2xl font-bold text-blue-800 dark:text-blue-200">{formatCurrency(settlementSummary.owner_markup_total ?? 0)}</div>
@@ -2023,13 +2066,14 @@ const Sales = ({
                                                 : "Akumulasi pendapatan owner dari transaksi tenant."}
                                         </div>
                                     </div>
+                                    )}
                                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
                                         <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">{isOwnerTenantView ? "Posisi Kas untuk Tenant Ini" : "Posisi Kas Aktual"}</div>
                                         <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{formatCurrency(settlementSummary.actual_cash_remaining_total ?? 0)}</div>
                                         <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                             {isOwnerTenantView
-                                                ? `Setelah payout tenant ini di-approve dan expense paid. Sisa markup owner ${formatCurrency(settlementSummary.owner_markup_remaining_total ?? 0)}.`
-                                                : `Setelah payout tenant approved dan expense paid. Sisa markup owner ${formatCurrency(settlementSummary.owner_markup_remaining_total ?? 0)}.`}
+                                                ? `Setelah payout tenant ini di-approve dan expense paid.${canViewMarkup ? ` Sisa markup owner ${formatCurrency(settlementSummary.owner_markup_remaining_total ?? 0)}.` : ""}`
+                                                : `Setelah payout tenant approved dan expense paid.${canViewMarkup ? ` Sisa markup owner ${formatCurrency(settlementSummary.owner_markup_remaining_total ?? 0)}.` : ""}`}
                                         </div>
                                     </div>
                                 </div>
@@ -2077,6 +2121,95 @@ const Sales = ({
                                     />
                                 </div>
 
+                                {/* Tabel Rekonsiliasi Per-Tenant */}
+                                {!isTenantWorkspace && (settlementSummary.tenant_reconciliation_rows ?? []).length > 0 && (
+                                    <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
+                                        <div className="mb-3">
+                                            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                                                Rekonsiliasi Per-Tenant
+                                            </h3>
+                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                Verifikasi: Gross = Hak Tenant + Markup Owner. Selisih harus nol atau sangat kecil (hanya pembulatan). Kolom outstanding = hak tenant dikurangi total yang sudah di-approve.
+                                            </p>
+                                        </div>
+                                        <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
+                                            <table className="w-full min-w-[900px] text-sm">
+                                                <thead>
+                                                    <tr className="border-b border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60">
+                                                        <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Tenant</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Gross Alokasi</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Hak Tenant Net</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Markup Owner</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 text-amber-600 dark:text-amber-400">Selisih</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Approved</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Pending</th>
+                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Outstanding</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {(settlementSummary.tenant_reconciliation_rows ?? []).map((row, idx) => {
+                                                        const hasSelisih = (row.reconciliation_diff ?? 0) !== 0;
+                                                        return (
+                                                            <tr key={row.tenant_outlet_id ?? idx} className="border-b border-slate-50 hover:bg-slate-50/60 dark:border-slate-800/60 dark:hover:bg-slate-800/20">
+                                                                <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
+                                                                    {row.tenant_name ?? "-"}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">
+                                                                    {formatCurrency(row.gross_total ?? 0)}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-right text-emerald-700 dark:text-emerald-400">
+                                                                    {formatCurrency(row.tenant_rights_total ?? 0)}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-right text-blue-700 dark:text-blue-400">
+                                                                    {formatCurrency(row.owner_markup_total ?? 0)}
+                                                                </td>
+                                                                <td className={`px-3 py-2 text-right font-semibold ${hasSelisih ? "text-red-600 dark:text-red-400" : "text-slate-400 dark:text-slate-600"}`}>
+                                                                    {hasSelisih ? formatCurrency(row.reconciliation_diff ?? 0) : "—"}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">
+                                                                    {formatCurrency(row.approved_total ?? 0)}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-right text-amber-600 dark:text-amber-400">
+                                                                    {formatCurrency(row.pending_total ?? 0)}
+                                                                </td>
+                                                                <td className={`px-3 py-2 text-right font-semibold ${(row.outstanding_total ?? 0) > 0 ? "text-red-600 dark:text-red-400" : "text-slate-400 dark:text-slate-600"}`}>
+                                                                    {(row.outstanding_total ?? 0) > 0 ? formatCurrency(row.outstanding_total) : "—"}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                                <tfoot>
+                                                    <tr className="border-t-2 border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/60">
+                                                        <td className="px-3 py-2 text-xs font-bold uppercase text-slate-600 dark:text-slate-400">Total</td>
+                                                        <td className="px-3 py-2 text-right text-sm font-bold text-slate-800 dark:text-slate-200">
+                                                            {formatCurrency(settlementSummary.gross_allocation_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right text-sm font-bold text-emerald-700 dark:text-emerald-400">
+                                                            {formatCurrency(settlementSummary.tenant_rights_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right text-sm font-bold text-blue-700 dark:text-blue-400">
+                                                            {formatCurrency(settlementSummary.owner_markup_total ?? 0)}
+                                                        </td>
+                                                        <td className={`px-3 py-2 text-right text-sm font-bold ${(settlementSummary.reconciliation_diff ?? 0) !== 0 ? "text-red-600 dark:text-red-400" : "text-slate-400 dark:text-slate-600"}`}>
+                                                            {(settlementSummary.reconciliation_diff ?? 0) !== 0 ? formatCurrency(settlementSummary.reconciliation_diff) : "—"}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right text-sm font-bold text-slate-800 dark:text-slate-200">
+                                                            {formatCurrency(settlementSummary.tenant_approved_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right text-sm font-bold text-amber-600 dark:text-amber-400">
+                                                            {formatCurrency(settlementSummary.request_pending_total ?? 0)}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right text-sm font-bold text-red-600 dark:text-red-400">
+                                                            {formatCurrency(settlementSummary.tenant_outstanding_total ?? 0)}
+                                                        </td>
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {!isTenantWorkspace && closingMonthRows.length > 0 ? (
                                     <>
                                         <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
@@ -2097,18 +2230,21 @@ const Sales = ({
                                                     <tr className="border-b border-slate-100 dark:border-slate-800">
                                                         <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">No</th>
                                                         <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Bulan</th>
+                                                        {canViewMarkup && <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Gross Alokasi</th>}
                                                         <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Penjualan</th>
                                                         <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Hak Tenant</th>
-                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>
+                                                        {canViewMarkup && <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Markup Owner</th>}
+                                                        {canViewMarkup && <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Selisih</th>}
                                                         <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Expense Paid</th>
                                                         <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Sisa Kas</th>
-                                                        <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Sisa Markup</th>
+                                                        {canViewMarkup && <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-slate-500">Sisa Markup</th>}
                                                         <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-slate-500">Aksi</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                                     {closingMonthRows.map((row, index) => {
                                                         const isSelected = row.month_key === closingSelectedMonth;
+                                                        const hasSelisih = canViewMarkup && (row.reconciliation_diff ?? 0) !== 0;
 
                                                         return (
                                                             <tr key={row.month_key} className={isSelected ? "bg-primary-50/60 dark:bg-primary-950/10" : ""}>
@@ -2121,12 +2257,18 @@ const Sales = ({
                                                                         {Number(row.days_count ?? 0).toLocaleString("id-ID")} hari
                                                                     </div>
                                                                 </td>
+                                                                {canViewMarkup && <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.gross_allocation_total ?? 0)}</td>}
                                                                 <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.revenue_total ?? 0)}</td>
                                                                 <td className="px-3 py-3 text-right text-sm text-emerald-700 dark:text-emerald-300">{formatCurrency(row.tenant_rights_total ?? 0)}</td>
-                                                                <td className="px-3 py-3 text-right text-sm text-blue-700 dark:text-blue-300">{formatCurrency(row.owner_markup_total ?? 0)}</td>
+                                                                {canViewMarkup && <td className="px-3 py-3 text-right text-sm text-blue-700 dark:text-blue-300">{formatCurrency(row.owner_markup_total ?? 0)}</td>}
+                                                                {canViewMarkup && (
+                                                                    <td className={`px-3 py-3 text-right text-sm font-semibold ${hasSelisih ? "text-red-600 dark:text-red-400" : "text-slate-400 dark:text-slate-600"}`}>
+                                                                        {hasSelisih ? formatCurrency(row.reconciliation_diff ?? 0) : "—"}
+                                                                    </td>
+                                                                )}
                                                                 <td className="px-3 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{formatCurrency(row.expense_paid_total ?? 0)}</td>
                                                                 <td className="px-3 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{formatCurrency(row.remaining_cash_total ?? 0)}</td>
-                                                                <td className="px-3 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{formatCurrency(row.owner_markup_remaining_total ?? 0)}</td>
+                                                                {canViewMarkup && <td className="px-3 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{formatCurrency(row.owner_markup_remaining_total ?? 0)}</td>}
                                                                 <td className="px-3 py-3 text-sm">
                                                                     <button
                                                                         type="button"

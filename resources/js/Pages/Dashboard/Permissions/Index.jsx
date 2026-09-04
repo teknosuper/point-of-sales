@@ -10,6 +10,7 @@ import {
     IconInfoCircle,
     IconKey,
     IconSearch,
+    IconShield,
 } from "@/Utils/icons";
 import Pagination from "@/Components/Dashboard/Pagination";
 import { decoratePermission } from "@/Utils/permissionPresentation";

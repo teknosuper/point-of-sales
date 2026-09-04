@@ -90,6 +90,7 @@ const permissionLabels = {
     "supplier-returns-access": "Lihat Retur Pemasok",
     "supplier-returns-create": "Tambah Retur Pemasok",
     "supplier-returns-update": "Ubah Retur Pemasok",
+    "view-markup-details": "Lihat Detail Harga Jual Kasir",
 };
 
 const groupLabels = {
@@ -145,6 +146,7 @@ export function permissionGroup(name = "") {
     if (name.startsWith("audit-logs-")) return "audit";
     if (name.startsWith("purchase-orders-") || name.startsWith("goods-receivings-") || name.startsWith("supplier-returns-")) return "purchasing";
     if (name === "dashboard-access") return "dashboard";
+    if (name === "view-markup-details") return "reports";
 
     return "other";
 }
@@ -175,6 +177,8 @@ export function permissionDescription(name = "") {
             return "Mengubah data outlet seperti nama, komisi, PIC, dan profil outlet.";
         case "table-orders-approve":
             return "Kasir mengonfirmasi pembayaran tunai self-order meja dan meneruskan pesanan ke dapur.";
+        case "view-markup-details":
+            return "Mengizinkan user melihat detail harga jual kasir (selisih harga tenant vs harga outlet) di laporan settlement, tutup buku, dan rekonsiliasi. Hanya berikan ke owner atau admin keuangan yang dipercaya.";
         default:
             return "";
     }

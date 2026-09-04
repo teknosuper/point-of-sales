@@ -140,6 +140,7 @@ export default function Index({
     wallet = null,
     walletTransactions = {},
     ownerOverview = null,
+    canViewMarkup = false,
 }) {
     const page = usePage();
     const { auth, errors, flash, activeOutlet, availableOutlets = [] } = page.props;
@@ -915,7 +916,9 @@ export default function Index({
                             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                                 <SummaryCard title="Total Omzet" value={formatCurrency((safeOwnerOverview.completed_gross_sales_total || 0) + (safeOwnerOverview.pending_kitchen_gross_sales_total || 0))} description={`Selesai ${formatCurrency(safeOwnerOverview.completed_gross_sales_total)} • Belum selesai ${formatCurrency(safeOwnerOverview.pending_kitchen_gross_sales_total)}`} icon={<IconCashBanknote size={20} />} tone="slate" />
                                 <SummaryCard title="Total Transaksi" value={String(safeOwnerOverview.total_transactions_count)} description={`Selesai ${safeOwnerOverview.completed_transactions_count} • Belum selesai ${safeOwnerOverview.pending_kitchen_transactions_count}`} icon={<IconReceipt2 size={20} />} tone="blue" />
-                                <SummaryCard title="Markup Owner" value={formatCurrency(safeOwnerOverview.owner_markup_total)} description="Hak owner dari markup produk dan topping tenant" icon={<IconUserDollar size={20} />} tone="emerald" />
+                                {canViewMarkup && (
+                                    <SummaryCard title="Markup Owner" value={formatCurrency(safeOwnerOverview.owner_markup_total)} description="Hak owner dari markup produk dan topping tenant" icon={<IconUserDollar size={20} />} tone="emerald" />
+                                )}
                                 <button
                                     type="button"
                                     onClick={() => setTenantBreakdownModalOpen(true)}
@@ -1230,7 +1233,7 @@ export default function Index({
                                             {formatCurrency(selectedShift.pricing_discount_total || 0)}
                                         </p>
                                     </div>
-                                    {!isTenantRequestMode ? (
+                                    {!isTenantRequestMode && canViewMarkup ? (
                                         <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
                                             <p className="text-xs font-semibold uppercase tracking-wide text-amber-500">
                                                 Markup Owner
@@ -1471,7 +1474,7 @@ export default function Index({
                                                 {formatCurrency(row.settlement_reference_total ?? row.base_sales_total)}
                                                 {row.is_tenant_request ? (
                                                     <div className="mt-1 text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                                                        Dasar {formatCurrency(row.pricing_basis_total ?? row.base_sales_total)} • markup owner {formatCurrency(row.pricing_adjustment_total ?? 0)}
+                                                Dasar {formatCurrency(row.pricing_basis_total ?? row.base_sales_total)}{canViewMarkup ? ` • markup owner ${formatCurrency(row.pricing_adjustment_total ?? 0)}` : ""}
                                                     </div>
                                                 ) : null}
                                             </td>
@@ -1755,7 +1758,7 @@ export default function Index({
                                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">No</th>
                                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Bulan</th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hak Tenant</th>
-                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>
+                                            {canViewMarkup && <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>}
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Mutasi</th>
                                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Aksi</th>
                                         </tr>
@@ -1768,7 +1771,7 @@ export default function Index({
                                                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{index + 1 + (walletMonthCurrentPage - 1) * walletMonthPerPage}</td>
                                                     <td className="px-4 py-3"><div className="font-semibold text-slate-900 dark:text-white">{row.month_label}</div><div className="text-xs text-slate-500 dark:text-slate-400">{row.sales_count} masuk saldo • {row.returns_count} retur</div></td>
                                                     <td className={`px-4 py-3 text-right font-semibold ${row.tenant_sales_total < 0 ? "text-danger-600 dark:text-danger-300" : "text-emerald-600 dark:text-emerald-300"}`}>{formatCurrency(row.tenant_sales_total)}</td>
-                                                    <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{formatCurrency(row.owner_markup_total)}</td>
+                                                    {canViewMarkup && <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{formatCurrency(row.owner_markup_total)}</td>}
                                                     <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{row.entries_count}</td>
                                                     <td className="px-4 py-3"><button type="button" onClick={() => selectWalletMonth(row.month_key)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${isSelected ? "bg-primary-600 text-white" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"}`}>{isSelected ? "Bulan aktif" : "Lihat hari"}</button></td>
                                                 </tr>
@@ -1788,7 +1791,7 @@ export default function Index({
                                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">No</th>
                                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hari</th>
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hak Tenant</th>
-                                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>
+                                            {canViewMarkup && <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>}
                                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Mutasi</th>
                                             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Aksi</th>
                                         </tr>
@@ -1801,7 +1804,7 @@ export default function Index({
                                                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{index + 1 + (walletDayCurrentPage - 1) * walletDayPerPage}</td>
                                                     <td className="px-4 py-3"><div className="font-semibold text-slate-900 dark:text-white">{row.date_label}</div><div className="text-xs text-slate-500 dark:text-slate-400">{row.sales_count} masuk saldo • {row.returns_count} retur</div></td>
                                                     <td className={`px-4 py-3 text-right font-semibold ${row.tenant_sales_total < 0 ? "text-danger-600 dark:text-danger-300" : "text-emerald-600 dark:text-emerald-300"}`}>{formatCurrency(row.tenant_sales_total)}</td>
-                                                    <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{formatCurrency(row.owner_markup_total)}</td>
+                                                    {canViewMarkup && <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{formatCurrency(row.owner_markup_total)}</td>}
                                                     <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{row.entries_count}</td>
                                                     <td className="px-4 py-3"><button type="button" onClick={() => selectWalletDay(row.date_key)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${isSelected ? "bg-primary-600 text-white" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"}`}>{isSelected ? "Hari aktif" : "Lihat detail"}</button></td>
                                                 </tr>
@@ -1936,6 +1939,7 @@ export default function Index({
                                                 {formatCurrency(walletDetailModal.transaction?.tenant_sales_total ?? 0)}
                                             </p>
                                         </div>
+                                        {canViewMarkup && (
                                         <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/20">
                                             <p className={`text-xs font-semibold uppercase tracking-wide ${isWalletReturnDetail ? "text-danger-500" : "text-amber-500"}`}>
                                                 {isWalletReturnDetail ? "Markup Owner Dikurangi" : "Markup Owner"}
@@ -1947,6 +1951,7 @@ export default function Index({
                                                 Produk {formatCurrency(walletDetailModal.transaction?.owner_product_markup_total ?? 0)} • Topping {formatCurrency(walletDetailModal.transaction?.owner_topping_markup_total ?? 0)}
                                             </p>
                                         </div>
+                                        )}
                                         <div className="rounded-2xl bg-blue-50 p-4 dark:bg-blue-950/20">
                                             <p className={`text-xs font-semibold uppercase tracking-wide ${isWalletReturnDetail ? "text-danger-500" : "text-blue-500"}`}>
                                                 {isWalletReturnDetail ? "Promo Dikurangi" : "Promo"}
@@ -1961,11 +1966,11 @@ export default function Index({
                                         <table className="w-full text-sm">
                                             <thead>
                                                 <tr className="border-b border-slate-100 dark:border-slate-800">
-                                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Item</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Item</th>
                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Qty</th>
                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Harga Customer</th>
                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hak Tenant</th>
-                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>
+                                                    {canViewMarkup && <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>}
                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Diskon</th>
                                                 </tr>
                                             </thead>
@@ -2024,15 +2029,17 @@ export default function Index({
                                                                 Unit {formatCurrency(detail.tenant_base_unit_price)}
                                                             </div>
                                                         </td>
-                                                        <td className={`px-4 py-3 text-right font-semibold ${detail.owner_net_total < 0 ? "text-danger-600 dark:text-danger-300" : "text-amber-600 dark:text-amber-300"}`}>
-                                                            <div>{formatCurrency(detail.owner_net_total)}</div>
-                                                            <div className="text-xs font-normal text-slate-500 dark:text-slate-400">
-                                                                Unit {formatCurrency(detail.owner_markup_unit_price)}
-                                                            </div>
-                                                            <div className="text-xs font-normal text-slate-500 dark:text-slate-400">
-                                                                Produk {formatCurrency(detail.owner_product_markup_total ?? 0)} • Topping {formatCurrency(detail.owner_topping_markup_total ?? 0)}
-                                                            </div>
-                                                        </td>
+                                                        {canViewMarkup && (
+                                                            <td className={`px-4 py-3 text-right font-semibold ${detail.owner_net_total < 0 ? "text-danger-600 dark:text-danger-300" : "text-amber-600 dark:text-amber-300"}`}>
+                                                                <div>{formatCurrency(detail.owner_net_total)}</div>
+                                                                <div className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                                                                    Unit {formatCurrency(detail.owner_markup_unit_price)}
+                                                                </div>
+                                                                <div className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                                                                    Produk {formatCurrency(detail.owner_product_markup_total ?? 0)} • Topping {formatCurrency(detail.owner_topping_markup_total ?? 0)}
+                                                                </div>
+                                                            </td>
+                                                        )}
                                                         <td className={`px-4 py-3 text-right ${detail.discount_total < 0 ? "font-semibold text-danger-600 dark:text-danger-300" : "text-slate-700 dark:text-slate-300"}`}>
                                                             {formatCurrency(detail.discount_total || 0)}
                                                         </td>
@@ -2207,7 +2214,7 @@ export default function Index({
                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Penghasilan Belum Selesai</th>
                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Total Penghasilan</th>
                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Hak Tenant Siap Withdraw</th>
-                                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>
+                                                    {canViewMarkup && <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Markup Owner</th>}
                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Sudah Withdraw</th>
                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Pending</th>
                                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Belum Withdraw</th>
@@ -2242,9 +2249,11 @@ export default function Index({
                                                         <td className="px-4 py-3 text-right font-semibold text-blue-700 dark:text-blue-300">
                                                             {formatCurrency(row.tenant_rights_total ?? 0)}
                                                         </td>
+                                                        {canViewMarkup && (
                                                         <td className="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-300">
                                                             {formatCurrency(row.owner_markup_total ?? 0)}
                                                         </td>
+                                                        )}
                                                         <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">
                                                             {formatCurrency(row.withdrawn_total ?? 0)}
                                                         </td>

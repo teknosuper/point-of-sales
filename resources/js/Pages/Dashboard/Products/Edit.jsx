@@ -1133,7 +1133,7 @@ export default function Edit({
                                 </div>
                                 <div>
                                     <p className="text-sm font-medium text-success-700 dark:text-success-400">
-                                        Markup Owner per Item
+                                        Harga Jual Kasir per Item
                                     </p>
                                     <p className="mt-1 text-2xl font-bold text-success-600 dark:text-success-500">
                                         + Rp{" "}
@@ -1326,7 +1326,7 @@ export default function Edit({
                                     product.sell_price !== undefined ? (
                                         <div>
                                             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                                                Markup Owner / Item
+                                                Harga Jual Kasir / Item
                                             </p>
                                             <p className="mt-1 text-lg font-bold text-emerald-700 dark:text-emerald-200">
                                                 {formatCurrency(

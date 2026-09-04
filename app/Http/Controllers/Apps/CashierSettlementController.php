@@ -157,6 +157,31 @@ class CashierSettlementController extends Controller
             ? $this->buildOwnerSettlementOverview($outlet, $visibleOutletIds)
             : null;
 
+        $canViewMarkup = (bool) $user?->can('view-markup-details');
+
+        // Sembunyikan semua angka markup dari response jika user tidak punya permission.
+        if (! $canViewMarkup) {
+            if ($ownerOverview !== null) {
+                $ownerOverview['owner_markup_total'] = null;
+                $ownerOverview['owner_markup_remaining_total'] = null;
+                // Null-kan markup di per-tenant breakdown
+                if (isset($ownerOverview['tenant_breakdown'])) {
+                    $ownerOverview['tenant_breakdown'] = array_map(function ($row) {
+                        $row['owner_markup_total'] = null;
+                        return $row;
+                    }, $ownerOverview['tenant_breakdown']);
+                }
+            }
+            if ($wallet !== null) {
+                $wallet['owner_markup_total'] = null;
+            }
+            // Null-kan markup di wallet transactions
+            if ($walletTransactions !== null && isset($walletTransactions['months'])) {
+                // walletTransactions adalah paginated — tidak perlu redact per-item karena
+                // tenant hanya melihat saldo/hak mereka sendiri, bukan markup owner
+            }
+        }
+
         return Inertia::render('Dashboard/CashierSettlements/Index', [
             'walletFilters' => $walletFilters,
             'requestFilters' => $requestFilters,
@@ -172,6 +197,7 @@ class CashierSettlementController extends Controller
             'wallet' => $wallet,
             'walletTransactions' => $walletTransactions,
             'ownerOverview' => $ownerOverview,
+            'canViewMarkup' => $canViewMarkup,
         ]);
     }
 
