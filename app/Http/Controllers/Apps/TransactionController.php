@@ -352,10 +352,14 @@ class TransactionController extends Controller
             ->values();
 
         // get all customers
-        $customers = Customer::latest()->limit(12)->get()->map(fn (Customer $customer) => [
-            ...$customer->toArray(),
-            'loyalty_tier' => $this->loyaltyService->resolvedTier($customer, $outlet?->id),
-        ]);
+        $customers = Customer::with('outletMetrics')
+            ->latest()
+            ->limit(12)
+            ->get()
+            ->map(fn (Customer $customer) => [
+                ...$customer->toArray(),
+                'loyalty_tier' => $this->loyaltyService->resolvedTier($customer, $outlet?->id),
+            ]);
         $diningTables = DiningTable::query()
             ->where('outlet_id', $outlet?->id)
             ->where('status', 'active')
@@ -500,6 +504,22 @@ class TransactionController extends Controller
                 ->tenant()
                 ->ordered()
                 ->get(['id', 'name', 'code', 'sort_order'])
+                ->tap(function ($tenantOutlets) {
+                    $outletIds = $tenantOutlets->pluck('id')->filter()->values()->all();
+                    if ($outletIds !== []) {
+                        $settingKeys = ['daily_store_open', 'daily_store_open_time', 'daily_store_close_time', 'daily_store_notes'];
+                        $rows = \App\Models\Setting::query()
+                            ->whereIn('key', $settingKeys)
+                            ->whereIn('outlet_id', $outletIds)
+                            ->get(['key', 'value', 'outlet_id']);
+                        foreach ($rows as $row) {
+                            $cacheKey = ($row->outlet_id ?? 'global').':'.$row->key;
+                            if (! array_key_exists($cacheKey, \App\Models\Setting::$resolvedCache)) {
+                                \App\Models\Setting::$resolvedCache[$cacheKey] = $row->value;
+                            }
+                        }
+                    }
+                })
                 ->map(function (Outlet $tenantOutlet) {
                     $hours = $this->storeHoursService->resolveTimeBased($tenantOutlet);
 

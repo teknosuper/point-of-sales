@@ -16,7 +16,7 @@ class Setting extends Model
      *
      * @var array<string, mixed>
      */
-    protected static array $resolvedCache = [];
+    public static array $resolvedCache = [];
 
     protected $fillable = [
         'outlet_id',

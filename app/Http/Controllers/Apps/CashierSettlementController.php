@@ -931,9 +931,10 @@ class CashierSettlementController extends Controller
             ->where('status', CashierSettlementRequest::STATUS_PENDING)
             ->sum('requested_amount');
 
-        // Hak tenant yang masuk saldo = nilai dasar tenant dikurangi promo tenant.
-        // $grossSalesTotal (sum subtotal) sudah merupakan nilai bersih setelah promo.
-        $claimableTotal = max(0, $grossSalesTotal);
+        // Hak tenant yang masuk saldo = net dari item-level (tenant_base_unit_price),
+        // bukan gross subtotal yang masih termasuk markup owner.
+        $tenantNetTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);
+        $claimableTotal = max(0, $tenantNetTotal);
         $receivableTotal = max(0, $claimableTotal - $approvedTotal);
         $availableBalance = max(0, $claimableTotal - $approvedTotal - $pendingTotal);
 
@@ -1101,12 +1102,6 @@ class CashierSettlementController extends Controller
         $grossSalesTotal = max(0, $grossSalesTotal - $returnGrossTotal);
         $ownerMarkupTotal -= $returnOwnerMarkupTotal;
 
-        // Hak penarikan tenant memakai omzet bersih setelah promo (subtotal).
-        // $grossSalesTotal (sum subtotal) sudah merupakan nilai bersih setelah promo.
-        $claimableTotal = max(0, $grossSalesTotal);
-        // Hak bersih tenant secara agregat (sudah dipotong promo) untuk kartu owner.
-        $tenantRightsTotal = $claimableTotal;
-
         $withdrawnTotal = (int) CashierSettlementRequest::query()
             ->whereIn('outlet_id', $tenantOutletIds->all())
             ->whereNull('cashier_shift_id')
@@ -1134,9 +1129,6 @@ class CashierSettlementController extends Controller
             ->selectRaw('outlet_id, COALESCE(SUM(requested_amount), 0) as total_amount')
             ->groupBy('outlet_id')
             ->pluck('total_amount', 'outlet_id');
-
-        $shouldWithdrawTotal = max(0, $claimableTotal);
-        $unwithdrawnTotal = max(0, $claimableTotal - $withdrawnTotal - $pendingWithdrawTotal);
 
         $returnAdjustmentsByTenant = $returns->reduce(function (array $carry, SalesReturn $salesReturn) use ($tenantOutletIds) {
             foreach ($salesReturn->items as $item) {
@@ -1169,6 +1161,19 @@ class CashierSettlementController extends Controller
             return $carry;
         }, []);
 
+        // Hak penarikan tenant = net dari item-level (base price tenant), bukan gross subtotal.
+        // $grossSalesTotal masih termasuk markup owner, sehingga tidak boleh dipakai langsung.
+        // sumTenantNetValueForAllocationIds menghitung dari transaction_tenant_allocation_items
+        // menggunakan tenant_base_unit_price / base_price — murni hak tenant tanpa markup.
+        $allAllocationIds = $allocationIdsByTenant->flatten()->values();
+        $returnTenantRightsTotal = array_sum(array_column($returnAdjustmentsByTenant, 'tenant_rights_total'));
+        $tenantNetTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allAllocationIds);
+        $claimableTotal = max(0, $tenantNetTotal - (int) $returnTenantRightsTotal);
+        // Hak bersih tenant secara agregat (net setelah markup owner dan retur) untuk kartu owner.
+        $tenantRightsTotal = $claimableTotal;
+        $shouldWithdrawTotal = max(0, $claimableTotal);
+        $unwithdrawnTotal = max(0, $claimableTotal - $withdrawnTotal - $pendingWithdrawTotal);
+
         $tenantBreakdown = $tenantOutletIds->map(function (int $tenantId) use (
             $tenantNames,
             $allocationIdsByTenant,
@@ -1189,13 +1194,15 @@ class CashierSettlementController extends Controller
 
             $grossSalesTotal = max(0, $grossSalesTotal - (int) ($returnAdjustments['gross_sales_total'] ?? 0));
             $completedGrossSalesTotal = max(0, $completedGrossSalesTotal - (int) ($returnAdjustments['gross_sales_total'] ?? 0));
-            // Hak bersih tenant setelah promo mengikuti omzet subtotal (gross setelah promo).
-            $tenantRightsTotal = $grossSalesTotal;
             $ownerMarkupTotal -= (int) ($returnAdjustments['owner_markup_total'] ?? 0);
+            // Hak bersih tenant = omzet gross setelah promo DIKURANGI markup owner per alokasi item.
+            // Jangan pakai $grossSalesTotal langsung — nilai itu masih termasuk markup owner.
+            $tenantNetFromItems = TenantWalletMetrics::sumTenantNetValueForAllocationIds($tenantAllocationIds);
+            $tenantRightsTotal = max(0, $tenantNetFromItems - (int) ($returnAdjustments['tenant_rights_total'] ?? 0));
             $withdrawnTotal = (int) ($withdrawnByTenant->get($tenantId, 0) ?? 0);
             $pendingWithdrawTotal = (int) ($pendingWithdrawByTenant->get($tenantId, 0) ?? 0);
-            $shouldWithdrawTotal = max(0, $grossSalesTotal);
-            $unwithdrawnTotal = max(0, $grossSalesTotal - $withdrawnTotal - $pendingWithdrawTotal);
+            $shouldWithdrawTotal = max(0, $tenantRightsTotal);
+            $unwithdrawnTotal = max(0, $tenantRightsTotal - $withdrawnTotal - $pendingWithdrawTotal);
             $tenant = $tenantNames->get($tenantId);
 
             return [

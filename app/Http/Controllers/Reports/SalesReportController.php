@@ -469,6 +469,7 @@ class SalesReportController extends Controller
                 ->get(['outlets.id', 'outlets.name', 'outlets.code']),
             'workspace' => [
                 'is_tenant_workspace' => false,
+                'is_kitchen_workspace' => (bool) ($request->user()?->isKitchenWorkspace() ?? false),
                 'active_outlet' => $activeOutlet ? [
                     'id' => $activeOutlet->id,
                     'name' => $activeOutlet->name,
