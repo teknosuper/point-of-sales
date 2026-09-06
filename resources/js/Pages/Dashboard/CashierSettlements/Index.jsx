@@ -6,6 +6,7 @@ import KitchenLayout from "@/Layouts/KitchenLayout";
 import Modal from "@/Components/Dashboard/Modal";
 import Pagination from "@/Components/Dashboard/Pagination";
 import {
+    IconAlertCircle,
     IconCalendar,
     IconCashBanknote,
     IconCheck,
@@ -2584,7 +2585,7 @@ export default function Index({
                               <SummaryCard title="Total Saldo Masuk" value={formatCurrency(tenantAuditReport.summary?.claimable_total ?? 0)} description="Hak tenant dari transaksi yang sudah delivered" icon={<IconReceipt2 size={20} />} tone="emerald" />
                               <SummaryCard title="Sudah Di-Withdraw" value={formatCurrency(tenantAuditReport.summary?.approved_total ?? 0)} description="Penarikan yang sudah disetujui dan dibayar" icon={<IconCheck size={20} />} tone="blue" />
                               <SummaryCard title="Pending Approval" value={formatCurrency(tenantAuditReport.summary?.pending_total ?? 0)} description="Penarikan yang masih menunggu proses" icon={<IconClockHour4 size={20} />} tone="amber" />
-                              <SummaryCard title="Saldo Tersedia" value={formatCurrency(tenantAuditReport.summary?.available_balance ?? 0)} description="Sisa saldo yang bisa diajukan" icon={<IconCashBanknote size={20} />} tone="slate" />
+                              <SummaryCard title="Saldo Tersedia" value={formatCurrency(tenantAuditReport.summary?.available_balance ?? 0)} description={(tenantAuditReport.summary?.total_excess_withdrawal ?? 0) > 0 ? `Ada selisih withdraw ${formatCurrency(tenantAuditReport.summary.total_excess_withdrawal)} — lihat audit di bawah` : 'Sisa saldo yang bisa diajukan'} icon={<IconCashBanknote size={20} />} tone="slate" />
                           </div>
 
                           {/* Date Filter */}
@@ -2675,97 +2676,107 @@ export default function Index({
                           {/* Income vs Saldo Flow */}
                           <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                               <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Alur Penghasilan vs Saldo</h3>
-                              <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">Perbandingan total penghasilan kotor, hak tenant (saldo masuk), dan sisa saldo tersedia.</p>
-                              {(() => {
-                                  const grossSales = (tenantAuditReport.months ?? []).reduce((s, m) => s + (m.subtotal_total ?? 0), 0);
-                                  const tenantNet = tenantAuditReport.summary?.claimable_total ?? 0;
-                                  const withdrawn = tenantAuditReport.summary?.approved_total ?? 0;
-                                  const pending = tenantAuditReport.summary?.pending_total ?? 0;
-                                  const returns = tenantAuditReport.summary?.return_total ?? 0;
-                                  const available = tenantAuditReport.summary?.available_balance ?? 0;
-                                  const ownerMarkup = Math.max(0, grossSales - tenantNet - returns);
+                              <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">Perbandingan total penghasilan kotor, hak tenant (saldo masuk), dan sisa saldo tersedia. Jika ada selisih withdraw (over-withdrawal historis), saldo real lebih rendah dari saldo tersedia.</p>
+                               {(() => {
+                                   const tenantName = tenantAuditReport.summary?.tenant_name ?? 'Tenant';
+                                   const mainOutletName = tenantAuditReport.summary?.main_outlet_name ?? 'Outlet Utama';
+                                   const tenantNet = tenantAuditReport.summary?.claimable_total ?? 0;
+                                   const ownerMarkup = tenantAuditReport.summary?.owner_markup_total ?? 0;
+                                   const totalCashierSales = tenantNet + ownerMarkup;
+                                   const withdrawn = tenantAuditReport.summary?.approved_total ?? 0;
+                                   const pending = tenantAuditReport.summary?.pending_total ?? 0;
+                                   const returns = tenantAuditReport.summary?.return_total ?? 0;
+                                   const available = tenantAuditReport.summary?.available_balance ?? 0;
+                                   const excessWithdrawal = tenantAuditReport.summary?.total_excess_withdrawal ?? 0;
 
-                                  return (
-                                      <div className="space-y-4">
-                                          {/* Visual Flow */}
-                                          <div className="flex flex-col items-stretch gap-0 sm:flex-row sm:items-center">
-                                              <div className="flex-1 rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4 text-center dark:border-slate-700 dark:from-slate-800 dark:to-slate-900">
-                                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Penghasilan Kotor</p>
-                                                  <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">{formatCurrency(grossSales)}</p>
-                                                  <p className="mt-1 text-[11px] text-slate-500">Total transaksi dari pelanggan</p>
-                                              </div>
-                                              <div className="flex items-center justify-center py-2 sm:py-0 sm:px-2">
-                                                  <div className="text-xs font-bold text-slate-400">→</div>
-                                              </div>
-                                              <div className="flex-1 rounded-2xl border border-slate-200 bg-gradient-to-br from-emerald-50 to-white p-4 text-center dark:border-emerald-900/40 dark:from-emerald-950/20 dark:to-slate-900">
-                                                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-500">Hak Tenant (Saldo Masuk)</p>
-                                                  <p className="mt-1 text-xl font-bold text-emerald-600">{formatCurrency(tenantNet)}</p>
-                                                  <p className="mt-1 text-[11px] text-slate-500">Setelah dikurangi markup owner</p>
-                                              </div>
-                                              <div className="flex items-center justify-center py-2 sm:py-0 sm:px-2">
-                                                  <div className="text-xs font-bold text-slate-400">→</div>
-                                              </div>
-                                              <div className="flex-1 rounded-2xl border border-slate-200 bg-gradient-to-br from-blue-50 to-white p-4 text-center dark:border-blue-900/40 dark:from-blue-950/20 dark:to-slate-900">
-                                                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">Sudah Di-Withdraw</p>
-                                                  <p className="mt-1 text-xl font-bold text-blue-600">{formatCurrency(withdrawn + pending)}</p>
-                                                  <p className="mt-1 text-[11px] text-slate-500">{formatCurrency(withdrawn)} cair + {formatCurrency(pending)} pending</p>
-                                              </div>
-                                              <div className="flex items-center justify-center py-2 sm:py-0 sm:px-2">
-                                                  <div className="text-xs font-bold text-slate-400">=</div>
-                                              </div>
-                                              <div className="flex-1 rounded-2xl border border-primary-200 bg-gradient-to-br from-primary-50 to-white p-4 text-center dark:border-primary-900/40 dark:from-primary-950/20 dark:to-slate-900">
-                                                  <p className="text-xs font-semibold uppercase tracking-wide text-primary-500">Saldo Tersedia</p>
-                                                  <p className="mt-1 text-xl font-bold text-primary-600">{formatCurrency(available)}</p>
-                                                  <p className="mt-1 text-[11px] text-slate-500">Siap diajukan</p>
-                                              </div>
-                                          </div>
+                                   return (
+                                       <div className="space-y-4">
+                                           {/* Visual Flow */}
+                                           <div className="flex flex-col items-stretch gap-0 sm:flex-row sm:items-center">
+                                               <div className="flex-1 rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4 text-center dark:border-slate-700 dark:from-slate-800 dark:to-slate-900">
+                                                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Total Penjualan Kasir</p>
+                                                   <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">{formatCurrency(totalCashierSales)}</p>
+                                                   <p className="mt-1 text-[11px] text-slate-500">Harga bayar pelanggan di kasir</p>
+                                               </div>
+                                               <div className="flex items-center justify-center py-2 sm:py-0 sm:px-2">
+                                                   <div className="text-xs font-bold text-slate-400">→</div>
+                                               </div>
+                                               <div className="flex-1 rounded-2xl border border-slate-200 bg-gradient-to-br from-emerald-50 to-white p-4 text-center dark:border-emerald-900/40 dark:from-emerald-950/20 dark:to-slate-900">
+                                                   <p className="text-xs font-semibold uppercase tracking-wide text-emerald-500">Hak {tenantName} (Saldo Masuk)</p>
+                                                   <p className="mt-1 text-xl font-bold text-emerald-600">{formatCurrency(tenantNet)}</p>
+                                                   <p className="mt-1 text-[11px] text-slate-500">{ownerMarkup > 0 ? `Setelah dipotong markup ${mainOutletName} ${formatCurrency(ownerMarkup)}` : `Sesuai harga modal ${tenantName}`}</p>
+                                               </div>
+                                               <div className="flex items-center justify-center py-2 sm:py-0 sm:px-2">
+                                                   <div className="text-xs font-bold text-slate-400">→</div>
+                                               </div>
+                                               <div className="flex-1 rounded-2xl border border-slate-200 bg-gradient-to-br from-blue-50 to-white p-4 text-center dark:border-blue-900/40 dark:from-blue-950/20 dark:to-slate-900">
+                                                   <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">Sudah Di-Withdraw</p>
+                                                   <p className="mt-1 text-xl font-bold text-blue-600">{formatCurrency(withdrawn + pending)}</p>
+                                                   <p className="mt-1 text-[11px] text-slate-500">{formatCurrency(withdrawn)} cair + {formatCurrency(pending)} pending</p>
+                                               </div>
+                                               <div className="flex items-center justify-center py-2 sm:py-0 sm:px-2">
+                                                   <div className="text-xs font-bold text-slate-400">=</div>
+                                               </div>
+                                               <div className="flex-1 rounded-2xl border border-primary-200 bg-gradient-to-br from-primary-50 to-white p-4 text-center dark:border-primary-900/40 dark:from-primary-950/20 dark:to-slate-900">
+                                                   <p className="text-xs font-semibold uppercase tracking-wide text-primary-500">Saldo Tersedia</p>
+                                                   <p className="mt-1 text-xl font-bold text-primary-600">{formatCurrency(available)}</p>
+                                                   <p className="mt-1 text-[11px] text-slate-500">Siap diajukan</p>
+                                               </div>
+                                           </div>
 
-                                          {/* Breakdown Table */}
-                                          <div className="overflow-x-auto">
-                                              <table className="w-full text-sm">
-                                                  <thead>
-                                                      <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
-                                                          <th className="px-3 py-3">Komponen</th>
-                                                          <th className="px-3 py-3 text-right">Nominal</th>
-                                                          <th className="px-3 py-3 text-right">% dari Kotor</th>
-                                                      </tr>
-                                                  </thead>
-                                                  <tbody>
-                                                      <tr className="border-b border-slate-100 dark:border-slate-800">
-                                                          <td className="px-3 py-3 font-medium text-slate-900 dark:text-white">Penghasilan Kotor (Gross Sales)</td>
-                                                          <td className="px-3 py-3 text-right font-semibold text-slate-900 dark:text-white">{formatCurrency(grossSales)}</td>
-                                                          <td className="px-3 py-3 text-right text-slate-500">100%</td>
-                                                      </tr>
-                                                      <tr className="border-b border-slate-100 dark:border-slate-800">
-                                                          <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Markup Owner</td>
-                                                          <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{formatCurrency(ownerMarkup)}</td>
-                                                          <td className="px-3 py-3 text-right text-slate-500">{grossSales > 0 ? ((ownerMarkup / grossSales) * 100).toFixed(1) : 0}%</td>
-                                                      </tr>
-                                                      <tr className="border-b border-slate-100 dark:border-slate-800">
-                                                          <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Retur</td>
-                                                          <td className="px-3 py-3 text-right text-rose-600">{formatCurrency(returns)}</td>
-                                                          <td className="px-3 py-3 text-right text-slate-500">{grossSales > 0 ? ((returns / grossSales) * 100).toFixed(1) : 0}%</td>
-                                                      </tr>
-                                                      <tr className="border-b border-emerald-50 bg-emerald-50/50 dark:border-emerald-900/20 dark:bg-emerald-950/10">
-                                                          <td className="px-3 py-3 font-semibold text-emerald-700 dark:text-emerald-300">= Hak Tenant (Saldo Masuk)</td>
-                                                          <td className="px-3 py-3 text-right font-bold text-emerald-700 dark:text-emerald-300">{formatCurrency(tenantNet)}</td>
-                                                          <td className="px-3 py-3 text-right font-semibold text-emerald-600">{grossSales > 0 ? ((tenantNet / grossSales) * 100).toFixed(1) : 0}%</td>
-                                                      </tr>
-                                                      <tr className="border-b border-slate-100 dark:border-slate-800">
-                                                          <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Sudah Di-Withdraw</td>
-                                                          <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(withdrawn)}</td>
-                                                          <td className="px-3 py-3 text-right text-slate-500">{grossSales > 0 ? ((withdrawn / grossSales) * 100).toFixed(1) : 0}%</td>
-                                                      </tr>
-                                                      <tr className="border-b border-slate-100 dark:border-slate-800">
-                                                          <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Pending Withdraw</td>
-                                                          <td className="px-3 py-3 text-right text-amber-600">{formatCurrency(pending)}</td>
-                                                          <td className="px-3 py-3 text-right text-slate-500">{grossSales > 0 ? ((pending / grossSales) * 100).toFixed(1) : 0}%</td>
-                                                      </tr>
-                                                      <tr className="bg-primary-50/50 dark:bg-primary-950/10">
-                                                          <td className="px-3 py-3 font-bold text-primary-700 dark:text-primary-300">= Saldo Tersedia</td>
-                                                          <td className="px-3 py-3 text-right font-bold text-primary-700 dark:text-primary-300">{formatCurrency(available)}</td>
-                                                          <td className="px-3 py-3 text-right font-bold text-primary-600">{grossSales > 0 ? ((available / grossSales) * 100).toFixed(1) : 0}%</td>
-                                                      </tr>
+                                           {/* Breakdown Table */}
+                                           <div className="overflow-x-auto">
+                                               <table className="w-full text-sm">
+                                                   <thead>
+                                                       <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
+                                                           <th className="px-3 py-3">Komponen</th>
+                                                           <th className="px-3 py-3 text-right">Nominal</th>
+                                                           <th className="px-3 py-3 text-right">% dari Kasir</th>
+                                                       </tr>
+                                                   </thead>
+                                                   <tbody>
+                                                       <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                           <td className="px-3 py-3 font-medium text-slate-900 dark:text-white">Total Penjualan Produk {tenantName} (di Kasir)</td>
+                                                           <td className="px-3 py-3 text-right font-semibold text-slate-900 dark:text-white">{formatCurrency(totalCashierSales)}</td>
+                                                           <td className="px-3 py-3 text-right text-slate-500">100%</td>
+                                                       </tr>
+                                                       <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                           <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Markup {mainOutletName}</td>
+                                                           <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{formatCurrency(ownerMarkup)}</td>
+                                                           <td className="px-3 py-3 text-right text-slate-500">{totalCashierSales > 0 ? ((ownerMarkup / totalCashierSales) * 100).toFixed(1) : 0}%</td>
+                                                       </tr>
+                                                       <tr className="border-b border-emerald-50 bg-emerald-50/50 dark:border-emerald-900/20 dark:bg-emerald-950/10">
+                                                           <td className="px-3 py-3 font-semibold text-emerald-700 dark:text-emerald-300">= Hak {tenantName} (Saldo Masuk)</td>
+                                                           <td className="px-3 py-3 text-right font-bold text-emerald-700 dark:text-emerald-300">{formatCurrency(tenantNet)}</td>
+                                                           <td className="px-3 py-3 text-right font-semibold text-emerald-600">{totalCashierSales > 0 ? ((tenantNet / totalCashierSales) * 100).toFixed(1) : 0}%</td>
+                                                       </tr>
+                                                       <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                           <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Retur Produk</td>
+                                                           <td className="px-3 py-3 text-right text-rose-600">{formatCurrency(returns)}</td>
+                                                           <td className="px-3 py-3 text-right text-slate-500">{totalCashierSales > 0 ? ((returns / totalCashierSales) * 100).toFixed(1) : 0}%</td>
+                                                       </tr>
+                                                       <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                           <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Sudah Di-Withdraw</td>
+                                                           <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(withdrawn)}</td>
+                                                           <td className="px-3 py-3 text-right text-slate-500">{totalCashierSales > 0 ? ((withdrawn / totalCashierSales) * 100).toFixed(1) : 0}%</td>
+                                                       </tr>
+                                                       <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                           <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Pending Withdraw</td>
+                                                           <td className="px-3 py-3 text-right text-amber-600">{formatCurrency(pending)}</td>
+                                                           <td className="px-3 py-3 text-right text-slate-500">{totalCashierSales > 0 ? ((pending / totalCashierSales) * 100).toFixed(1) : 0}%</td>
+                                                       </tr>
+                                                       <tr className="bg-primary-50/50 dark:bg-primary-950/10">
+                                                           <td className="px-3 py-3 font-bold text-primary-700 dark:text-primary-300">= Saldo Tersedia</td>
+                                                           <td className="px-3 py-3 text-right font-bold text-primary-700 dark:text-primary-300">{formatCurrency(available)}</td>
+                                                           <td className="px-3 py-3 text-right font-bold text-primary-600">{totalCashierSales > 0 ? ((available / totalCashierSales) * 100).toFixed(1) : 0}%</td>
+                                                       </tr>
+                                                      {excessWithdrawal > 0 && (
+                                                          <tr className="border-t border-amber-200 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/10">
+                                                              <td colSpan={3} className="px-3 py-3 text-xs text-amber-700 dark:text-amber-300">
+                                                                  Catatan: Total keseluruhan sudah benar (Saldo Tersedia = {formatCurrency(available)}). Namun ada <strong>{formatCurrency(excessWithdrawal)}</strong> withdraw yang melebihi saldo tersedia pada hari tersebut (lihat tabel audit harian di bawah). Ini menandakan markup owner mungkin ikut terhitung dalam hak tenant pada hari tersebut.
+                                                              </td>
+                                                          </tr>
+                                                      )}
                                                   </tbody>
                                               </table>
                                           </div>
@@ -2779,7 +2790,7 @@ export default function Index({
                               <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                                   <h3 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">Audit Harian: Withdraw vs Saldo</h3>
                                   <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-                                      Monitoring apakah withdraw melebihi hak tenant. Baris merah = hari ada withdraw yang melebihi saldo kumulatif (kemungkinan markup owner ikut terhitung).
+                                      Monitoring apakah withdraw melebihi hak tenant. Saldo awal + hak tenant − withdraw − retur = saldo akhir. Baris merah = withdraw melebihi saldo tersedia saat itu (kemungkinan markup owner ikut terhitung).
                                   </p>
 
                                   {/* Alert banner jika ada excess */}
@@ -2800,76 +2811,85 @@ export default function Index({
 
                                   <div className="overflow-x-auto">
                                       <table className="w-full text-sm">
-                                          <thead>
-                                              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
-                                                  <th className="px-3 py-3">Tanggal</th>
-                                                  <th className="px-3 py-3 text-right">Hak Tenant</th>
-                                                  <th className="px-3 py-3 text-right">Withdraw</th>
-                                                  <th className="px-3 py-3 text-right">Retur</th>
-                                                  <th className="px-3 py-3 text-right">Saldo Kumulatif</th>
-                                                  <th className="px-3 py-3 text-right">Withdraw Kumulatif</th>
-                                                  <th className="px-3 py-3 text-right">Saldo Sebelum Withdraw</th>
-                                                  <th className="px-3 py-3 text-right">Selisih</th>
-                                                  <th className="px-3 py-3">Keterangan</th>
-                                              </tr>
-                                          </thead>
-                                          <tbody>
-                                              {(tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).map((day) => {
-                                                  const isDanger = day.audit_severity === 'danger';
-                                                  const isWarning = day.audit_severity === 'warning';
-                                                  const rowBg = isDanger
-                                                      ? 'bg-rose-50 dark:bg-rose-950/20'
-                                                      : isWarning
-                                                        ? 'bg-amber-50 dark:bg-amber-950/20'
-                                                        : '';
+                                           <thead>
+                                                <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
+                                                    <th className="px-3 py-3">Tanggal</th>
+                                                    <th className="px-3 py-3 text-right">Hak {tenantAuditReport.summary?.tenant_name ?? 'Tenant'}</th>
+                                                    <th className="px-3 py-3 text-right">Withdraw</th>
+                                                   <th className="px-3 py-3 text-right">Retur</th>
+                                                   <th className="px-3 py-3 text-right">Saldo Akhir</th>
+                                                   <th className="px-3 py-3 text-right">Kum. Hak</th>
+                                                   <th className="px-3 py-3 text-right">Kum. Withdraw</th>
+                                                    <th className="px-3 py-3 text-right">Kum. Retur</th>
+                                                    <th className="px-3 py-3 min-w-[280px]">Keterangan</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                            {(() => {
+                                                const dailyData = tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? [];
+                                                return dailyData.map((day) => {
+                                                        const isDanger = day.audit_severity === 'danger';
+                                                        const isWarning = day.audit_severity === 'warning';
+                                                        const rowBg = isDanger
+                                                            ? 'bg-rose-50/70 border-l-4 border-l-rose-500 dark:bg-rose-950/30'
+                                                            : isWarning
+                                                              ? 'bg-amber-50/70 border-l-4 border-l-amber-500 dark:bg-amber-950/30'
+                                                              : '';
 
-                                                  return (
-                                                      <tr key={day.day_key} className={`border-b border-slate-100 last:border-0 dark:border-slate-800 ${rowBg}`}>
-                                                          <td className="px-3 py-3">
-                                                              <div className="font-medium text-slate-900 dark:text-white">{day.day_label}</div>
-                                                              {day.transactions_count > 0 && (
-                                                                  <div className="text-[11px] text-slate-400">{day.transactions_count} transaksi</div>
-                                                              )}
-                                                          </td>
-                                                          <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency(day.tenant_net)}</td>
-                                                          <td className={`px-3 py-3 text-right font-medium ${isDanger ? 'text-rose-700 font-bold' : 'text-blue-600'}`}>
-                                                              {day.withdrawn > 0 ? formatCurrency(day.withdrawn) : '-'}
-                                                          </td>
-                                                          <td className="px-3 py-3 text-right text-rose-600">{day.return_amount > 0 ? formatCurrency(day.return_amount) : '-'}</td>
-                                                          <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{formatCurrency(day.cum_earnings - day.cum_returns)}</td>
-                                                          <td className={`px-3 py-3 text-right ${isDanger ? 'font-bold text-rose-700' : 'text-blue-600'}`}>{formatCurrency(day.cum_withdrawals)}</td>
-                                                          <td className="px-3 py-3 text-right font-semibold text-slate-900 dark:text-white">{formatCurrency(day.balance_before_withdraw)}</td>
-                                                          <td className={`px-3 py-3 text-right font-bold ${day.selisih > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                                              {day.selisih > 0 ? `+${formatCurrency(day.selisih)}` : formatCurrency(0)}
-                                                          </td>
-                                                          <td className="px-3 py-3">
-                                                              {day.audit_note ? (
-                                                                  <div className={`flex items-start gap-1.5 text-[11px] leading-tight ${isDanger ? 'text-rose-700 dark:text-rose-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                                                                      {isDanger ? <IconInfoCircle size={12} className="mt-0.5 shrink-0" /> : null}
-                                                                      <span>{day.audit_note}</span>
-                                                                  </div>
-                                                              ) : (
-                                                                  <span className="text-[11px] text-slate-400">-</span>
-                                                              )}
-                                                          </td>
-                                                      </tr>
-                                                  );
-                                              })}
-                                          </tbody>
-                                          <tfoot>
-                                              <tr className="border-t-2 border-slate-300 font-bold dark:border-slate-600">
-                                                  <td className="px-3 py-3 text-slate-900 dark:text-white">Total Halaman Ini</td>
-                                                  <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + d.tenant_net, 0))}</td>
-                                                  <td className="px-3 py-3 text-right text-blue-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + d.withdrawn, 0))}</td>
-                                                  <td className="px-3 py-3 text-right text-rose-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + d.return_amount, 0))}</td>
-                                                  <td className="px-3 py-3 text-right" colSpan={2}></td>
-                                                  <td className="px-3 py-3 text-right text-slate-900 dark:text-white">-</td>
-                                                  <td className="px-3 py-3 text-right font-bold text-rose-600">
-                                                      {(tenantAuditReport.summary?.total_excess_withdrawal ?? 0) > 0 ? formatCurrency(tenantAuditReport.summary.total_excess_withdrawal) : '-'}
-                                                  </td>
-                                                  <td></td>
-                                              </tr>
-                                          </tfoot>
+                                                        return (
+                                                            <tr key={day.day_key} className={`border-b border-slate-100 last:border-0 dark:border-slate-800 ${rowBg}`}>
+                                                                <td className="px-3 py-3">
+                                                                    <div className="font-medium text-slate-900 dark:text-white">{day.day_label}</div>
+                                                                    {day.transactions_count > 0 && (
+                                                                        <div className="text-[11px] text-slate-400">{day.transactions_count} transaksi</div>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency(day.tenant_net)}</td>
+                                                                <td className={`px-3 py-3 text-right font-medium ${day.daily_withdraw > 0 ? 'text-blue-600' : 'text-slate-400'}`}>
+                                                                    {day.daily_withdraw > 0 ? formatCurrency(day.daily_withdraw) : '-'}
+                                                                </td>
+                                                                <td className="px-3 py-3 text-right text-rose-600">{day.daily_return > 0 ? formatCurrency(day.daily_return) : '-'}</td>
+                                                                <td className={`px-3 py-3 text-right font-semibold ${day.running_balance < 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
+                                                                    {formatCurrency(day.running_balance)}
+                                                                </td>
+                                                                <td className="px-3 py-3 text-right text-slate-500 dark:text-slate-400">{formatCurrency(day.cum_earnings)}</td>
+                                                                <td className={`px-3 py-3 text-right ${isDanger ? 'font-medium text-rose-600' : 'text-slate-500 dark:text-slate-400'}`}>
+                                                                    {formatCurrency(day.cum_withdrawn)}
+                                                                </td>
+                                                                <td className="px-3 py-3 text-right text-slate-500 dark:text-slate-400">{formatCurrency(day.cum_returns)}</td>
+                                                                <td className="px-3 py-3 min-w-[280px]">
+                                                                    {day.audit_note ? (
+                                                                        <div className={`flex flex-col gap-1 rounded-xl p-2.5 text-xs leading-relaxed ${isDanger ? 'border border-rose-200 bg-rose-100/70 text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/60 dark:text-rose-200' : 'border border-amber-200 bg-amber-100/70 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/60 dark:text-amber-200'}`}>
+                                                                            <div className="flex items-center gap-1.5 font-bold">
+                                                                                <IconAlertCircle size={15} className={`shrink-0 ${isDanger ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`} />
+                                                                                <span>Selisih Withdraw: {formatCurrency(day.selisih)}</span>
+                                                                            </div>
+                                                                            <div className="text-[11px] leading-normal opacity-90">
+                                                                                {day.audit_note}
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="text-xs text-slate-400">-</span>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    });
+                                               })()}
+                                           </tbody>
+                                           <tfoot>
+                                               <tr className="border-t-2 border-slate-300 font-bold dark:border-slate-600">
+                                                   <td className="px-3 py-3 text-slate-900 dark:text-white">Total Halaman Ini</td>
+                                                   <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + d.tenant_net, 0))}</td>
+                                                   <td className="px-3 py-3 text-right text-blue-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + (d.daily_withdraw ?? 0), 0))}</td>
+                                                   <td className="px-3 py-3 text-right text-rose-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + (d.daily_return ?? 0), 0))}</td>
+                                                   <td className="px-3 py-3"></td>
+                                                   <td className="px-3 py-3"></td>
+                                                   <td className="px-3 py-3"></td>
+                                                   <td className="px-3 py-3"></td>
+                                                   <td></td>
+                                               </tr>
+                                           </tfoot>
                                       </table>
                                   </div>
                                   {tenantAuditReport.daily?.links && (
@@ -2880,53 +2900,63 @@ export default function Index({
                               </div>
                           ) : null}
 
-                          {/* Monthly Breakdown Table */}
-                         <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                             <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Rekap Per Bulan</h3>
-                             {tenantAuditReport.months?.length > 0 ? (
-                                 <div className="overflow-x-auto">
-                                     <table className="w-full text-sm">
-                                         <thead>
-                                             <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
-                                                 <th className="px-3 py-3">Periode</th>
-                                                 <th className="px-3 py-3 text-right">Transaksi</th>
-                                                 <th className="px-3 py-3 text-right">Hak Tenant</th>
-                                                 <th className="px-3 py-3 text-right">Disetujui</th>
-                                                 <th className="px-3 py-3 text-right">Pending</th>
-                                                 <th className="px-3 py-3 text-right">Ditolak</th>
-                                                 <th className="px-3 py-3 text-right">Sisa Saldo</th>
-                                             </tr>
-                                         </thead>
-                                         <tbody>
-                                             {tenantAuditReport.months.map((month) => (
-                                                 <tr key={month.month_key} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
-                                                     <td className="px-3 py-3 font-medium text-slate-900 dark:text-white">{month.month_label}</td>
-                                                     <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{month.transactions_count}</td>
-                                                     <td className="px-3 py-3 text-right font-semibold text-emerald-600">{formatCurrency(month.tenant_net_total)}</td>
-                                                     <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(month.approved_amount)}</td>
-                                                     <td className="px-3 py-3 text-right text-amber-600">{formatCurrency(month.pending_amount)}</td>
-                                                     <td className="px-3 py-3 text-right text-rose-600">{formatCurrency(month.rejected_amount)}</td>
-                                                     <td className="px-3 py-3 text-right font-semibold text-slate-900 dark:text-white">{formatCurrency(month.remaining_balance)}</td>
-                                                 </tr>
-                                             ))}
-                                         </tbody>
-                                         <tfoot>
-                                             <tr className="border-t border-slate-200 font-semibold dark:border-slate-700">
-                                                 <td className="px-3 py-3 text-slate-900 dark:text-white">Total</td>
-                                                 <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{tenantAuditReport.months.reduce((s, m) => s + m.transactions_count, 0)}</td>
-                                                 <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.tenant_net_total, 0))}</td>
-                                                 <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.approved_amount, 0))}</td>
-                                                 <td className="px-3 py-3 text-right text-amber-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.pending_amount, 0))}</td>
-                                                 <td className="px-3 py-3 text-right text-rose-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.rejected_amount, 0))}</td>
-                                                 <td className="px-3 py-3 text-right text-slate-900 dark:text-white">{formatCurrency(tenantAuditReport.summary?.available_balance ?? 0)}</td>
-                                             </tr>
-                                         </tfoot>
-                                     </table>
-                                 </div>
-                             ) : (
-                                 <p className="text-sm text-slate-500 dark:text-slate-400">Belum ada data transaksi.</p>
-                             )}
-                         </div>
+                           {/* Monthly Breakdown Table */}
+                          <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                              <div className="mb-4">
+                                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Rekap Per Bulan</h3>
+                                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                      Ringkasan hak tenant, retur, penarikan, dan saldo berjalan kumulatif di setiap akhir bulan.
+                                  </p>
+                              </div>
+                              {tenantAuditReport.months?.length > 0 ? (
+                                  <div className="overflow-x-auto">
+                                      <table className="w-full text-sm">
+                                          <thead>
+                                              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
+                                                  <th className="px-3 py-3">Periode</th>
+                                                  <th className="px-3 py-3 text-right">Transaksi</th>
+                                                  <th className="px-3 py-3 text-right">Hak {tenantAuditReport.summary?.tenant_name ?? 'Tenant'}</th>
+                                                  <th className="px-3 py-3 text-right">Retur</th>
+                                                  <th className="px-3 py-3 text-right">Disetujui</th>
+                                                  <th className="px-3 py-3 text-right">Pending</th>
+                                                  <th className="px-3 py-3 text-right">Ditolak</th>
+                                                  <th className="px-3 py-3 text-right">Saldo Akhir Bulan</th>
+                                              </tr>
+                                          </thead>
+                                          <tbody>
+                                              {tenantAuditReport.months.map((month) => (
+                                                  <tr key={month.month_key} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                                      <td className="px-3 py-3 font-medium text-slate-900 dark:text-white">{month.month_label}</td>
+                                                      <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{month.transactions_count}</td>
+                                                      <td className="px-3 py-3 text-right font-semibold text-emerald-600">{formatCurrency(month.tenant_net_total)}</td>
+                                                      <td className="px-3 py-3 text-right text-rose-600">{month.return_amount > 0 ? formatCurrency(month.return_amount) : '-'}</td>
+                                                      <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(month.approved_amount)}</td>
+                                                      <td className="px-3 py-3 text-right text-amber-600">{month.pending_amount > 0 ? formatCurrency(month.pending_amount) : '-'}</td>
+                                                      <td className="px-3 py-3 text-right text-slate-400">{month.rejected_amount > 0 ? formatCurrency(month.rejected_amount) : '-'}</td>
+                                                      <td className={`px-3 py-3 text-right font-semibold ${month.remaining_balance < 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
+                                                          {formatCurrency(month.remaining_balance)}
+                                                      </td>
+                                                  </tr>
+                                              ))}
+                                          </tbody>
+                                          <tfoot>
+                                              <tr className="border-t border-slate-200 font-semibold dark:border-slate-700">
+                                                  <td className="px-3 py-3 text-slate-900 dark:text-white">Total</td>
+                                                  <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{tenantAuditReport.months.reduce((s, m) => s + m.transactions_count, 0)}</td>
+                                                  <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.tenant_net_total, 0))}</td>
+                                                  <td className="px-3 py-3 text-right text-rose-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + (m.return_amount ?? 0), 0))}</td>
+                                                  <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.approved_amount, 0))}</td>
+                                                  <td className="px-3 py-3 text-right text-amber-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.pending_amount, 0))}</td>
+                                                  <td className="px-3 py-3 text-right text-slate-400">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.rejected_amount, 0))}</td>
+                                                  <td className="px-3 py-3 text-right font-bold text-slate-900 dark:text-white">{formatCurrency(tenantAuditReport.summary?.available_balance ?? 0)}</td>
+                                              </tr>
+                                          </tfoot>
+                                      </table>
+                                  </div>
+                              ) : (
+                                  <p className="text-sm text-slate-500 dark:text-slate-400">Belum ada data transaksi.</p>
+                              )}
+                          </div>
 
                          {/* Recent Settlement Requests */}
                          <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
