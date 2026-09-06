@@ -1001,7 +1001,7 @@ class CashierSettlementController extends Controller
         // Apply date filters if provided
         $hasDateFilter = ($dateFilters['date_from'] ?? '') !== '' || ($dateFilters['date_to'] ?? '') !== '';
         if ($hasDateFilter) {
-            ReportTimezone::applySourceDateRange($allocationQuery, 'delivered_at', [
+            ReportTimezone::applySourceDateRange($allocationQuery, 'created_at', [
                 'start_date' => $dateFilters['date_from'] ?? '',
                 'end_date' => $dateFilters['date_to'] ?? '',
             ]);
@@ -1107,13 +1107,13 @@ class CashierSettlementController extends Controller
 
         // 2. Rincian per-periode (bulan) dari alokasi
         $monthlyAllocations = (clone $allocationQuery)
-            ->selectRaw("DATE_FORMAT(delivered_at, '%Y-%m') as month_key, COALESCE(SUM(subtotal), 0) as subtotal_total, COUNT(DISTINCT transaction_id) as transactions_count, COUNT(*) as allocations_count")
+            ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month_key, COALESCE(SUM(subtotal), 0) as subtotal_total, COUNT(DISTINCT transaction_id) as transactions_count, COUNT(*) as allocations_count")
             ->groupBy('month_key')
             ->orderBy('month_key')
             ->get();
 
         $monthlyAllocIds = (clone $allocationQuery)
-            ->selectRaw("DATE_FORMAT(delivered_at, '%Y-%m') as month_key, id")
+            ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as month_key, id")
             ->get()
             ->groupBy('month_key')
             ->map(fn ($rows) => $rows->pluck('id'));
@@ -1238,16 +1238,16 @@ class CashierSettlementController extends Controller
         ];
 
         // 8. Breakdown harian: penghasilan vs saldo
-        // Timeline berdasarkan delivered_at (saat penghasilan diterima tenant)
+        // Timeline berdasarkan created_at (saat transaksi dibuat/dibayar di kasir)
         $dailyAllocations = (clone $allocationQuery)
-            ->selectRaw('DATE(delivered_at) as day_key, COALESCE(SUM(subtotal), 0) as gross_sales, COUNT(DISTINCT transaction_id) as transactions_count')
+            ->selectRaw('DATE(created_at) as day_key, COALESCE(SUM(subtotal), 0) as gross_sales, COUNT(DISTINCT transaction_id) as transactions_count')
             ->groupBy('day_key')
             ->orderBy('day_key')
             ->get();
 
         // Fetch allocation IDs per day using same DATE() grouping — no timezone mismatch
         $dailyAllocIds = (clone $allocationQuery)
-            ->selectRaw('DATE(delivered_at) as day_key, id')
+            ->selectRaw('DATE(created_at) as day_key, id')
             ->get()
             ->groupBy('day_key')
             ->map(fn ($rows) => $rows->pluck('id'));
@@ -1356,12 +1356,24 @@ class CashierSettlementController extends Controller
         $cumEarnings = 0;
         $prevCumWithdrawn = 0;
         $prevCumReturns = 0;
-        $dailyRows = $dailyRows->map(function ($row) use (&$cumEarnings, &$prevCumWithdrawn, &$prevCumReturns) {
+        $prevRunningBalance = 0;
+        $dailyRows = $dailyRows->map(function ($row) use (
+            &$cumEarnings, &$prevCumWithdrawn, &$prevCumReturns, &$prevRunningBalance
+        ) {
+            $prevBalance = $prevRunningBalance;
+
             $cumEarnings += $row['tenant_net'];
-            $runningBalance = $cumEarnings - $row['cum_withdrawn'] - $row['cum_returns'];
 
             $dailyWithdraw = $row['cum_withdrawn'] - $prevCumWithdrawn;
             $dailyReturn = $row['cum_returns'] - $prevCumReturns;
+
+            // Saldo Tersedia sebelum dipotong withdraw hari ini
+            $balanceBeforeWithdraw = $prevBalance + $row['tenant_net'] - $dailyReturn;
+
+            // Saldo Akhir setelah dipotong withdraw hari ini
+            $runningBalance = $balanceBeforeWithdraw - $dailyWithdraw;
+
+            $prevRunningBalance = $runningBalance;
             $prevCumWithdrawn = $row['cum_withdrawn'];
             $prevCumReturns = $row['cum_returns'];
 
@@ -1375,13 +1387,15 @@ class CashierSettlementController extends Controller
                 $formattedWithdrawn = 'Rp '.number_format($row['cum_withdrawn'], 0, ',', '.');
                 $formattedEarnings = 'Rp '.number_format($cumEarnings, 0, ',', '.');
                 $formattedSelisih = 'Rp '.number_format($selisih, 0, ',', '.');
-                $auditNote = "Withdraw kumulatif ({$formattedWithdrawn}) melebihi hak tenant kumulatif ({$formattedEarnings}). Selisih: {$formattedSelisih}.";
+                $auditNote = "Total withdraw ({$formattedWithdrawn}) melebihi total hak tenant ({$formattedEarnings}) sebesar {$formattedSelisih}.";
             }
 
             return [
                 ...$row,
+                'prev_balance' => $prevBalance,
                 'daily_withdraw' => $dailyWithdraw,
                 'daily_return' => $dailyReturn,
+                'balance_before_withdraw' => $balanceBeforeWithdraw,
                 'cum_earnings' => $cumEarnings,
                 'running_balance' => $runningBalance,
                 'selisih' => $selisih,
@@ -2053,8 +2067,16 @@ class CashierSettlementController extends Controller
 
         return TransactionTenantAllocation::query()
             ->when($allocationOutletId > 0, fn (Builder $builder) => $builder->where('outlet_id', $allocationOutletId))
-            ->where('waiter_status', 'delivered')
-            ->whereNotNull('delivered_at')
+            ->where(function (Builder $builder) {
+                $builder
+                    ->where('payment_status', '!=', 'returned')
+                    ->orWhereNull('payment_status');
+            })
+            ->where(function (Builder $builder) {
+                $builder
+                    ->where('grand_total', '>', 0)
+                    ->orWhere('subtotal', '>', 0);
+            })
             ->when(
                 $tenantOutletIds->isNotEmpty(),
                 fn (Builder $builder) => $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all()),
@@ -2064,7 +2086,7 @@ class CashierSettlementController extends Controller
 
     private function applyTenantWalletFilters(Builder $query, array $filters): Builder
     {
-        return $query
+        $query = $query
             ->when($filters['q'] !== '', function (Builder $builder) use ($filters) {
                 $builder->where(function (Builder $nested) use ($filters) {
                     $nested
@@ -2080,7 +2102,7 @@ class CashierSettlementController extends Controller
             ->when($filters['cashier_id'] !== '', fn (Builder $builder) => $builder->where('cashier_id', (int) $filters['cashier_id']))
             ->when(($filters['payment_method'] ?? '') !== '', fn (Builder $builder) => $builder->whereHas('transaction', fn (Builder $transactionQuery) => $transactionQuery->where('payment_method', $filters['payment_method'])));
 
-        return ReportTimezone::applySourceDateRange($query, 'delivered_at', [
+        return ReportTimezone::applySourceDateRange($query, 'created_at', [
             'start_date' => $filters['date_from'] ?? '',
             'end_date' => $filters['date_to'] ?? '',
         ]);

@@ -1903,8 +1903,16 @@ class SalesReportController extends Controller
                 ->whereIn('transaction_id', $balanceTransactionQuery->select('transactions.id'))
                 ->when($filters['outlet_id'] ?? null, fn ($query, $outletId) => $query->where('outlet_id', $outletId))
                 ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
-                ->where('waiter_status', 'delivered')
-                ->whereNotNull('delivered_at')
+                ->where(function (Builder $builder) {
+                    $builder
+                        ->where('payment_status', '!=', 'returned')
+                        ->orWhereNull('payment_status');
+                })
+                ->where(function (Builder $builder) {
+                    $builder
+                        ->where('grand_total', '>', 0)
+                        ->orWhere('subtotal', '>', 0);
+                })
                 ->pluck('id');
 
             $balanceTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);

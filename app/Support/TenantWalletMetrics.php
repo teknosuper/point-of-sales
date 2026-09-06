@@ -40,13 +40,21 @@ class TenantWalletMetrics
                     -- Hak tenant per item tidak boleh melebihi harga bayar pelanggan.
                     -- LEAST() melindungi dari kasus tenant_base_unit_price > customer_base_unit_price
                     -- yang terjadi jika HPP produk di-set lebih tinggi dari harga jual ke pelanggan.
-                    LEAST(
-                        CASE WHEN transaction_details.tenant_base_unit_price > 0
+                    -- Jika customer_base_unit_price = 0 (data belum terisi), gunakan nilai tenant langsung
+                    -- agar tidak menghasilkan 0 akibat LEAST(x, 0).
+                    CASE WHEN COALESCE(transaction_details.customer_base_unit_price, transaction_details.unit_price, 0) > 0
+                        THEN LEAST(
+                            CASE WHEN transaction_details.tenant_base_unit_price > 0
+                                THEN transaction_details.tenant_base_unit_price * transaction_tenant_allocation_items.qty
+                                ELSE COALESCE(transaction_tenant_allocation_items.base_unit_price, 0) * transaction_tenant_allocation_items.qty
+                            END,
+                            COALESCE(transaction_details.customer_base_unit_price, transaction_details.unit_price, 0) * transaction_tenant_allocation_items.qty
+                        )
+                        ELSE CASE WHEN transaction_details.tenant_base_unit_price > 0
                             THEN transaction_details.tenant_base_unit_price * transaction_tenant_allocation_items.qty
                             ELSE COALESCE(transaction_tenant_allocation_items.base_unit_price, 0) * transaction_tenant_allocation_items.qty
-                        END,
-                        COALESCE(transaction_details.customer_base_unit_price, transaction_details.unit_price, 0) * transaction_tenant_allocation_items.qty
-                    )
+                        END
+                    END
                 ), 0) as total_tenant_base
             ')
             ->groupBy('transaction_tenant_allocation_id')

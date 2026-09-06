@@ -2582,7 +2582,7 @@ export default function Index({
                               </div>
                           )}
                           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                              <SummaryCard title="Total Saldo Masuk" value={formatCurrency(tenantAuditReport.summary?.claimable_total ?? 0)} description="Hak tenant dari transaksi yang sudah delivered" icon={<IconReceipt2 size={20} />} tone="emerald" />
+                              <SummaryCard title="Total Saldo Masuk" value={formatCurrency(tenantAuditReport.summary?.claimable_total ?? 0)} description="Hak tenant dari transaksi yang sudah dibayar" icon={<IconReceipt2 size={20} />} tone="emerald" />
                               <SummaryCard title="Sudah Di-Withdraw" value={formatCurrency(tenantAuditReport.summary?.approved_total ?? 0)} description="Penarikan yang sudah disetujui dan dibayar" icon={<IconCheck size={20} />} tone="blue" />
                               <SummaryCard title="Pending Approval" value={formatCurrency(tenantAuditReport.summary?.pending_total ?? 0)} description="Penarikan yang masih menunggu proses" icon={<IconClockHour4 size={20} />} tone="amber" />
                               <SummaryCard title="Saldo Tersedia" value={formatCurrency(tenantAuditReport.summary?.available_balance ?? 0)} description={(tenantAuditReport.summary?.total_excess_withdrawal ?? 0) > 0 ? `Ada selisih withdraw ${formatCurrency(tenantAuditReport.summary.total_excess_withdrawal)} — lihat audit di bawah` : 'Sisa saldo yang bisa diajukan'} icon={<IconCashBanknote size={20} />} tone="slate" />
@@ -2789,9 +2789,9 @@ export default function Index({
                           {(tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).length > 0 ? (
                               <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                                   <h3 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">Audit Harian: Withdraw vs Saldo</h3>
-                                  <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-                                      Monitoring apakah withdraw melebihi hak tenant. Saldo awal + hak tenant − withdraw − retur = saldo akhir. Baris merah = withdraw melebihi saldo tersedia saat itu (kemungkinan markup owner ikut terhitung).
-                                  </p>
+                                   <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                                       Alur harian: Sisa Kemarin + Hak Tenant Masuk − Retur = <strong>Saldo Sebelum Withdraw</strong>. Kemudian Saldo Sebelum Withdraw − Withdraw = <strong>Saldo Akhir</strong>. Baris merah = withdraw melebihi saldo tersedia pada hari tersebut.
+                                   </p>
 
                                   {/* Alert banner jika ada excess */}
                                   {(tenantAuditReport.summary?.total_excess_withdrawal ?? 0) > 0 && (
@@ -2815,12 +2815,13 @@ export default function Index({
                                                 <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
                                                     <th className="px-3 py-3">Tanggal</th>
                                                     <th className="px-3 py-3 text-right">Hak {tenantAuditReport.summary?.tenant_name ?? 'Tenant'}</th>
+                                                    <th className="px-3 py-3 text-right">Retur</th>
+                                                    <th className="px-3 py-3 text-right text-emerald-700 dark:text-emerald-300">Saldo Sebelum Withdraw</th>
                                                     <th className="px-3 py-3 text-right">Withdraw</th>
-                                                   <th className="px-3 py-3 text-right">Retur</th>
-                                                   <th className="px-3 py-3 text-right">Saldo Akhir</th>
-                                                   <th className="px-3 py-3 text-right">Kum. Hak</th>
-                                                   <th className="px-3 py-3 text-right">Kum. Withdraw</th>
-                                                    <th className="px-3 py-3 text-right">Kum. Retur</th>
+                                                    <th className="px-3 py-3 text-right">Saldo Akhir</th>
+                                                    <th className="px-3 py-3 text-right">Kumulatif Hak</th>
+                                                    <th className="px-3 py-3 text-right">Kumulatif Withdraw</th>
+                                                    <th className="px-3 py-3 text-right">Kumulatif Retur</th>
                                                     <th className="px-3 py-3 min-w-[280px]">Keterangan</th>
                                                 </tr>
                                             </thead>
@@ -2845,12 +2846,48 @@ export default function Index({
                                                                     )}
                                                                 </td>
                                                                 <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency(day.tenant_net)}</td>
+                                                                <td className="px-3 py-3 text-right text-rose-600">{day.daily_return > 0 ? formatCurrency(day.daily_return) : '-'}</td>
+                                                                <td className={`px-3 py-3 text-right ${day.balance_before_withdraw < 0 ? 'text-rose-600' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                                                                    <div className="font-semibold text-sm">{formatCurrency(day.balance_before_withdraw)}</div>
+                                                                    <div className="mt-0.5 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
+                                                                        Sisa{' '}
+                                                                        <span className={`inline-block px-1 py-0.2 rounded font-semibold ${day.prev_balance < 0 ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300' : 'text-slate-700 dark:text-slate-300'}`}>
+                                                                            {formatCurrency(day.prev_balance)}
+                                                                        </span>
+                                                                        {' + Hak '}
+                                                                        <span className="font-medium text-emerald-700 dark:text-emerald-300">
+                                                                            {formatCurrency(day.tenant_net)}
+                                                                        </span>
+                                                                        {day.daily_return > 0 && (
+                                                                            <>
+                                                                                {' - Retur '}
+                                                                                <span className="inline-block px-1 py-0.2 rounded font-semibold bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
+                                                                                    {formatCurrency(day.daily_return)}
+                                                                                </span>
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                </td>
                                                                 <td className={`px-3 py-3 text-right font-medium ${day.daily_withdraw > 0 ? 'text-blue-600' : 'text-slate-400'}`}>
                                                                     {day.daily_withdraw > 0 ? formatCurrency(day.daily_withdraw) : '-'}
                                                                 </td>
-                                                                <td className="px-3 py-3 text-right text-rose-600">{day.daily_return > 0 ? formatCurrency(day.daily_return) : '-'}</td>
-                                                                <td className={`px-3 py-3 text-right font-semibold ${day.running_balance < 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
-                                                                    {formatCurrency(day.running_balance)}
+                                                                <td className={`px-3 py-3 text-right ${day.running_balance < 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
+                                                                    <div className="font-semibold text-sm">{formatCurrency(day.running_balance)}</div>
+                                                                    <div className="mt-0.5 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
+                                                                        {day.daily_withdraw > 0 ? (
+                                                                            <>
+                                                                                <span className={`inline-block px-1 py-0.2 rounded font-semibold ${day.balance_before_withdraw < 0 ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300' : 'text-slate-700 dark:text-slate-300'}`}>
+                                                                                    {formatCurrency(day.balance_before_withdraw)}
+                                                                                </span>
+                                                                                {' − '}
+                                                                                <span className="inline-block px-1 py-0.2 rounded font-medium bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
+                                                                                    {formatCurrency(day.daily_withdraw)}
+                                                                                </span>
+                                                                            </>
+                                                                        ) : (
+                                                                            <span className="text-slate-400">= Saldo Sebelum Withdraw</span>
+                                                                        )}
+                                                                    </div>
                                                                 </td>
                                                                 <td className="px-3 py-3 text-right text-slate-500 dark:text-slate-400">{formatCurrency(day.cum_earnings)}</td>
                                                                 <td className={`px-3 py-3 text-right ${isDanger ? 'font-medium text-rose-600' : 'text-slate-500 dark:text-slate-400'}`}>
@@ -2862,7 +2899,7 @@ export default function Index({
                                                                         <div className={`flex flex-col gap-1 rounded-xl p-2.5 text-xs leading-relaxed ${isDanger ? 'border border-rose-200 bg-rose-100/70 text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/60 dark:text-rose-200' : 'border border-amber-200 bg-amber-100/70 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/60 dark:text-amber-200'}`}>
                                                                             <div className="flex items-center gap-1.5 font-bold">
                                                                                 <IconAlertCircle size={15} className={`shrink-0 ${isDanger ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400'}`} />
-                                                                                <span>Selisih Withdraw: {formatCurrency(day.selisih)}</span>
+                                                                                 <span>Kelebihan Withdraw: {formatCurrency(day.selisih)}</span>
                                                                             </div>
                                                                             <div className="text-[11px] leading-normal opacity-90">
                                                                                 {day.audit_note}
@@ -2877,19 +2914,20 @@ export default function Index({
                                                     });
                                                })()}
                                            </tbody>
-                                           <tfoot>
-                                               <tr className="border-t-2 border-slate-300 font-bold dark:border-slate-600">
-                                                   <td className="px-3 py-3 text-slate-900 dark:text-white">Total Halaman Ini</td>
-                                                   <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + d.tenant_net, 0))}</td>
-                                                   <td className="px-3 py-3 text-right text-blue-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + (d.daily_withdraw ?? 0), 0))}</td>
-                                                   <td className="px-3 py-3 text-right text-rose-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + (d.daily_return ?? 0), 0))}</td>
-                                                   <td className="px-3 py-3"></td>
-                                                   <td className="px-3 py-3"></td>
-                                                   <td className="px-3 py-3"></td>
-                                                   <td className="px-3 py-3"></td>
-                                                   <td></td>
-                                               </tr>
-                                           </tfoot>
+                                            <tfoot>
+                                                <tr className="border-t-2 border-slate-300 font-bold dark:border-slate-600">
+                                                    <td className="px-3 py-3 text-slate-900 dark:text-white">Total Halaman Ini</td>
+                                                    <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + d.tenant_net, 0))}</td>
+                                                    <td className="px-3 py-3 text-right text-rose-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + (d.daily_return ?? 0), 0))}</td>
+                                                    <td className="px-3 py-3"></td>
+                                                    <td className="px-3 py-3 text-right text-blue-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + (d.daily_withdraw ?? 0), 0))}</td>
+                                                    <td className="px-3 py-3"></td>
+                                                    <td className="px-3 py-3"></td>
+                                                    <td className="px-3 py-3"></td>
+                                                    <td className="px-3 py-3"></td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
                                       </table>
                                   </div>
                                   {tenantAuditReport.daily?.links && (
