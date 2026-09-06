@@ -153,6 +153,9 @@ class CashierSettlementController extends Controller
         $walletTransactions = $isTenantRequestWorkspace
             ? $this->buildTenantWalletTransactions($user, $outlet, $walletFilters)
             : null;
+        $tenantAuditReport = $isTenantRequestWorkspace
+            ? $this->buildTenantAuditReport($user, $outlet)
+            : null;
         $ownerOverview = ! $isTenantRequestWorkspace
             ? $this->buildOwnerSettlementOverview($outlet, $visibleOutletIds)
             : null;
@@ -168,6 +171,7 @@ class CashierSettlementController extends Controller
                 if (isset($ownerOverview['tenant_breakdown'])) {
                     $ownerOverview['tenant_breakdown'] = array_map(function ($row) {
                         $row['owner_markup_total'] = null;
+
                         return $row;
                     }, $ownerOverview['tenant_breakdown']);
                 }
@@ -196,6 +200,7 @@ class CashierSettlementController extends Controller
             'canCreateRequest' => $isTenantRequestWorkspace,
             'wallet' => $wallet,
             'walletTransactions' => $walletTransactions,
+            'tenantAuditReport' => $tenantAuditReport,
             'ownerOverview' => $ownerOverview,
             'canViewMarkup' => $canViewMarkup,
         ]);
@@ -975,6 +980,287 @@ class CashierSettlementController extends Controller
             'pending_total' => $pendingTotal,
             'receivable_total' => $receivableTotal,
             'available_balance' => $availableBalance,
+        ];
+    }
+
+    private function buildTenantAuditReport(User $user, Outlet $activeOutlet): array
+    {
+        $allocationQuery = $this->buildTenantWalletAllocationQuery($user, $activeOutlet);
+        $settlementOutletIds = $this->resolveTenantSettlementOutletIds($user, $activeOutlet);
+
+        // 1. Ringkasan utama
+        $allocationIds = (clone $allocationQuery)->pluck('id');
+        $tenantNetTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);
+        $claimableTotal = max(0, $tenantNetTotal);
+
+        $approvedTotal = (int) CashierSettlementRequest::query()
+            ->whereIn('outlet_id', $settlementOutletIds->all())
+            ->whereNull('cashier_shift_id')
+            ->where('status', CashierSettlementRequest::STATUS_APPROVED)
+            ->sum('approved_amount');
+
+        $pendingTotal = (int) CashierSettlementRequest::query()
+            ->whereIn('outlet_id', $settlementOutletIds->all())
+            ->whereNull('cashier_shift_id')
+            ->where('status', CashierSettlementRequest::STATUS_PENDING)
+            ->sum('requested_amount');
+
+        $rejectedTotal = (int) CashierSettlementRequest::query()
+            ->whereIn('outlet_id', $settlementOutletIds->all())
+            ->whereNull('cashier_shift_id')
+            ->where('status', CashierSettlementRequest::STATUS_REJECTED)
+            ->sum('requested_amount');
+
+        $availableBalance = max(0, $claimableTotal - $approvedTotal - $pendingTotal);
+
+        // 2. Rincian per-periode (bulan) dari alokasi
+        $monthlyAllocations = (clone $allocationQuery)
+            ->selectRaw("DATE_FORMAT(delivered_at, '%Y-%m') as month_key, COALESCE(SUM(subtotal), 0) as subtotal_total, COUNT(DISTINCT transaction_id) as transactions_count, COUNT(*) as allocations_count")
+            ->groupBy('month_key')
+            ->orderByDesc('month_key')
+            ->get();
+
+        $allocationIdsByMonth = (clone $allocationQuery)
+            ->select(['id', 'delivered_at'])
+            ->get()
+            ->groupBy(fn ($row) => substr((string) ReportTimezone::sourceDateKey($row->getRawOriginal('delivered_at')), 0, 7));
+
+        $monthlyNetTotals = [];
+        foreach ($monthlyAllocations as $monthRow) {
+            $monthKey = $monthRow->month_key;
+            $monthAllocationIds = $allocationIdsByMonth->get($monthKey, collect())->pluck('id');
+            $monthlyNetTotals[$monthKey] = TenantWalletMetrics::sumTenantNetValueForAllocationIds($monthAllocationIds);
+        }
+
+        // 3. Rincian penarikan per bulan
+        $monthlySettlements = CashierSettlementRequest::query()
+            ->whereIn('outlet_id', $settlementOutletIds->all())
+            ->whereNull('cashier_shift_id')
+            ->selectRaw("DATE_FORMAT(business_date, '%Y-%m') as month_key, status, COALESCE(SUM(requested_amount), 0) as requested_total, COALESCE(SUM(approved_amount), 0) as approved_total, COUNT(*) as count")
+            ->groupBy('month_key', 'status')
+            ->orderByDesc('month_key')
+            ->get()
+            ->groupBy('month_key');
+
+        // 4. Gabungkan data per bulan
+        $months = $monthlyAllocations->map(function ($monthRow) use ($monthlyNetTotals, $monthlySettlements) {
+            $monthKey = $monthRow->month_key;
+            $monthLabel = Carbon::createFromFormat('Y-m', $monthKey, ReportTimezone::timezone())->translatedFormat('F Y');
+            $netTotal = $monthlyNetTotals[$monthKey] ?? 0;
+            $settlements = $monthlySettlements->get($monthKey, collect());
+            $approved = $settlements->where('status', CashierSettlementRequest::STATUS_APPROVED)->first();
+            $pending = $settlements->where('status', CashierSettlementRequest::STATUS_PENDING)->first();
+            $rejected = $settlements->where('status', CashierSettlementRequest::STATUS_REJECTED)->first();
+            $approvedAmount = (int) ($approved?->approved_total ?? 0);
+            $pendingAmount = (int) ($pending?->requested_total ?? 0);
+            $rejectedAmount = (int) ($rejected?->requested_total ?? 0);
+
+            return [
+                'month_key' => $monthKey,
+                'month_label' => $monthLabel,
+                'transactions_count' => (int) $monthRow->transactions_count,
+                'allocations_count' => (int) $monthRow->allocations_count,
+                'subtotal_total' => (int) $monthRow->subtotal_total,
+                'tenant_net_total' => max(0, $netTotal),
+                'approved_amount' => $approvedAmount,
+                'approved_count' => (int) ($approved?->count ?? 0),
+                'pending_amount' => $pendingAmount,
+                'pending_count' => (int) ($pending?->count ?? 0),
+                'rejected_amount' => $rejectedAmount,
+                'rejected_count' => (int) ($rejected?->count ?? 0),
+                'settled_total' => $approvedAmount + $pendingAmount,
+                'remaining_balance' => max(0, $netTotal - $approvedAmount - $pendingAmount),
+            ];
+        })->values();
+
+        // 5. Detail penarikan (10 terakhir)
+        $recentSettlements = CashierSettlementRequest::query()
+            ->with(['approvedBy:id,name'])
+            ->whereIn('outlet_id', $settlementOutletIds->all())
+            ->whereNull('cashier_shift_id')
+            ->latest('created_at')
+            ->limit(10)
+            ->get()
+            ->map(fn (CashierSettlementRequest $s) => [
+                'id' => $s->id,
+                'request_number' => $s->request_number,
+                'business_date' => $s->business_date?->format('d M Y'),
+                'requested_amount' => (int) $s->requested_amount,
+                'approved_amount' => (int) $s->approved_amount,
+                'status' => $s->status,
+                'requested_at' => $s->created_at?->format('d M Y H:i'),
+                'approved_at' => $s->approved_at?->format('d M Y H:i'),
+                'approved_by' => $s->approvedBy?->name,
+                'rejection_reason' => $s->rejection_reason,
+                'paid_at' => $s->paid_at?->format('d M Y H:i'),
+            ]);
+
+        // 6. Data retur yang mempengaruhi saldo
+        $returns = SalesReturn::query()
+            ->where('status', 'completed')
+            ->whereHas('items.transactionDetail', fn (Builder $builder) => $builder->whereIn('tenant_outlet_id', $this->resolveKitchenTenantOutletIds($user, $activeOutlet->id)->all()))
+            ->latest('completed_at')
+            ->limit(10)
+            ->with(['transaction:id,invoice'])
+            ->get()
+            ->map(function (SalesReturn $sr) {
+                $items = $sr->items->filter(fn ($item) => (int) ($item->transactionDetail?->tenant_outlet_id ?? 0) > 0);
+                $totalReturn = 0;
+                foreach ($items as $item) {
+                    $detail = $item->transactionDetail;
+                    $qty = (int) ($item->qty_return ?? 0);
+                    $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
+                    $totalReturn += $customerUnitPrice * $qty;
+                }
+
+                return [
+                    'id' => $sr->id,
+                    'code' => $sr->code,
+                    'invoice' => $sr->transaction?->invoice,
+                    'total_amount' => $totalReturn,
+                    'items_count' => $items->count(),
+                    'completed_at' => $sr->completed_at?->format('d M Y H:i'),
+                ];
+            })
+            ->filter(fn ($row) => $row['total_amount'] > 0)
+            ->values();
+
+        $returnTotal = $returns->sum('total_amount');
+
+        // 7. Reconciliation — selisih antara kalkulasi manual dan data
+        $expectedBalance = max(0, $claimableTotal - $returnTotal);
+        $reconciliation = [
+            'claimable_total' => $claimableTotal,
+            'return_total' => $returnTotal,
+            'expected_balance' => $expectedBalance,
+            'actual_approved' => $approvedTotal,
+            'actual_pending' => $pendingTotal,
+            'actual_withdrawn' => $approvedTotal + $pendingTotal,
+            'expected_remaining' => max(0, $expectedBalance - $approvedTotal - $pendingTotal),
+            'is_balanced' => abs($expectedBalance - $approvedTotal - $pendingTotal - $availableBalance) <= 1,
+        ];
+
+        // 8. Breakdown harian: penghasilan vs saldo
+        $dailyAllocations = (clone $allocationQuery)
+            ->selectRaw('DATE(delivered_at) as day_key, COALESCE(SUM(subtotal), 0) as gross_sales, COUNT(DISTINCT transaction_id) as transactions_count')
+            ->groupBy('day_key')
+            ->orderByDesc('day_key')
+            ->limit(30)
+            ->get();
+
+        $allocationIdsByDay = (clone $allocationQuery)
+            ->select(['id', 'delivered_at'])
+            ->get()
+            ->groupBy(fn ($row) => substr((string) ReportTimezone::sourceDateKey($row->getRawOriginal('delivered_at')), 0, 10));
+
+        $dailyNetTotals = [];
+        foreach ($dailyAllocations as $dayRow) {
+            $dayKey = $dayRow->day_key;
+            $dayAllocationIds = $allocationIdsByDay->get($dayKey, collect())->pluck('id');
+            $dailyNetTotals[$dayKey] = TenantWalletMetrics::sumTenantNetValueForAllocationIds($dayAllocationIds);
+        }
+
+        $dailySettlements = CashierSettlementRequest::query()
+            ->whereIn('outlet_id', $settlementOutletIds->all())
+            ->whereNull('cashier_shift_id')
+            ->where('status', CashierSettlementRequest::STATUS_APPROVED)
+            ->selectRaw('DATE(paid_at) as day_key, COALESCE(SUM(approved_amount), 0) as withdrawn_total')
+            ->whereNotNull('paid_at')
+            ->groupBy('day_key')
+            ->get()
+            ->keyBy('day_key');
+
+        $dailyReturns = collect();
+        foreach ($returns as $sr) {
+            $completedAt = $sr['completed_at'] ?? null;
+            if (! $completedAt) {
+                continue;
+            }
+            $dayKey = Carbon::parse($completedAt, ReportTimezone::timezone())->format('Y-m-d');
+            if (! $dayKey) {
+                continue;
+            }
+            $dayReturnTotal = (int) ($sr['total_amount'] ?? 0);
+            $dailyReturns[$dayKey] = ($dailyReturns[$dayKey] ?? 0) + $dayReturnTotal;
+        }
+
+        // Gabungkan data harian dan hitung running balance + audit selisih
+        $allDays = $dailyAllocations->pluck('day_key')->map(fn ($d) => (string) $d)->unique()->sort()->values();
+
+        // Sort ascending untuk kalkulasi kumulatif
+        $dailyAsc = $allDays->map(function ($dayKey) use ($dailyAllocations, $dailyNetTotals, $dailySettlements, $dailyReturns) {
+            $allocRow = $dailyAllocations->firstWhere('day_key', $dayKey);
+            $grossSales = (int) ($allocRow->gross_sales ?? 0);
+            $tenantNet = max(0, $dailyNetTotals[$dayKey] ?? 0);
+            $withdrawn = (int) ($dailySettlements->get($dayKey)?->withdrawn_total ?? 0);
+            $returnAmount = (int) ($dailyReturns[$dayKey] ?? 0);
+            $dayLabel = Carbon::parse($dayKey)->translatedFormat('d M Y');
+
+            return [
+                'day_key' => $dayKey,
+                'day_label' => $dayLabel,
+                'transactions_count' => (int) ($allocRow->transactions_count ?? 0),
+                'gross_sales' => $grossSales,
+                'tenant_net' => $tenantNet,
+                'withdrawn' => $withdrawn,
+                'return_amount' => $returnAmount,
+                'net_change' => $tenantNet - $withdrawn - $returnAmount,
+            ];
+        })->sortBy('day_key')->values();
+
+        // Hitung kumulatif + audit
+        $cumEarnings = 0;
+        $cumWithdrawals = 0;
+        $cumReturns = 0;
+        $dailyRows = $dailyAsc->map(function ($row) use (&$cumEarnings, &$cumWithdrawals, &$cumReturns) {
+            $cumEarnings += $row['tenant_net'];
+            $cumWithdrawals += $row['withdrawn'];
+            $cumReturns += $row['return_amount'];
+            $correctBalance = max(0, $cumEarnings - $cumReturns - $cumWithdrawals);
+            $excessWithdrawal = max(0, $cumWithdrawals - max(0, $cumEarnings - $cumReturns));
+
+            // Audit note: kapan dan berapa kali withdraw melebihi saldo
+            $auditNote = null;
+            $auditSeverity = 'ok'; // ok | warning | danger
+            if ($row['withdrawn'] > 0 && $cumWithdrawals > max(0, $cumEarnings - $cumReturns)) {
+                $auditSeverity = 'danger';
+                $auditNote = "Withdraw {$row['withdrawn']} melebihi saldo kumulatif. Selisih: {$excessWithdrawal}. Kemungkinan markup owner terhitung ke hak tenant.";
+            } elseif ($row['withdrawn'] > 0 && $row['withdrawn'] > ($cumEarnings - $cumReturns - $row['withdrawn'])) {
+                // Withdrawal hari ini lebih besar dari saldo tersedia saat itu
+                $auditSeverity = 'warning';
+                $auditNote = 'Withdraw hari ini cukup besar dibanding saldo tersedia.';
+            }
+
+            return [
+                ...$row,
+                'cum_earnings' => $cumEarnings,
+                'cum_withdrawals' => $cumWithdrawals,
+                'cum_returns' => $cumReturns,
+                'correct_balance' => $correctBalance,
+                'excess_withdrawal' => $excessWithdrawal,
+                'audit_note' => $auditNote,
+                'audit_severity' => $auditSeverity,
+            ];
+        });
+
+        // Balik ke descending untuk tampilan
+        $dailyRows = $dailyRows->sortByDesc('day_key')->values();
+
+        return [
+            'summary' => [
+                'claimable_total' => $claimableTotal,
+                'approved_total' => $approvedTotal,
+                'pending_total' => $pendingTotal,
+                'rejected_total' => $rejectedTotal,
+                'return_total' => $returnTotal,
+                'available_balance' => $availableBalance,
+                'total_excess_withdrawal' => (int) $dailyRows->max('excess_withdrawal'),
+            ],
+            'months' => $months,
+            'daily' => $dailyRows,
+            'recent_settlements' => $recentSettlements,
+            'recent_returns' => $returns,
+            'reconciliation' => $reconciliation,
         ];
     }
 

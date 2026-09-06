@@ -156,23 +156,23 @@ export default function ModifierOptionsModal({
     const modifierStatus = hasModifierOptions
         ? selectionIsRequired
             ? {
-                  label: "Topping wajib dipilih",
+                  label: "Pilih topping",
                   description:
-                      "Menu ini memiliki topping, dan ada pilihan yang wajib diisi sebelum bisa ditambahkan ke keranjang.",
+                      "Pilih minimal satu topping untuk melanjutkan.",
                   className:
                       "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200",
               }
             : {
                   label: "Topping tersedia",
                   description:
-                      "Menu ini memiliki topping opsional. Anda boleh memilih topping atau langsung lanjut tanpa topping.",
+                      "Pilih topping atau langsung tambahkan ke keranjang.",
                   className:
                       "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900/40 dark:bg-sky-950/20 dark:text-sky-200",
               }
         : {
               label: "Tanpa topping",
               description:
-                  "Menu ini tidak memiliki topping atau extra. Cukup atur jumlah lalu tambahkan ke keranjang.",
+                  "Atur jumlah lalu tambahkan ke keranjang.",
               className:
                   "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200",
           };
@@ -394,7 +394,7 @@ export default function ModifierOptionsModal({
                                 <p className="break-words text-sm leading-6 text-slate-600 dark:text-slate-300">
                                     {product.description
                                         ? product.description
-                                        : "Menu ini siap dipesan dari meja. Tambahkan topping atau catatan bila diperlukan sebelum masuk ke keranjang."}
+                                        : "Tambahkan topping atau catatan jika diperlukan."}
                                 </p>
                                 <div className={`rounded-2xl border px-4 py-3 ${modifierStatus.className}`}>
                                     <p className="text-xs font-bold uppercase tracking-[0.16em]">

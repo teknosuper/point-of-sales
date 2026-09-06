@@ -432,7 +432,7 @@ class PricingService
     {
         $items = $carts->map(function (Cart $cart) {
             $components = $this->productPricingComponents($cart->product, (int) $cart->qty);
-            $modifierTotal = (int) $cart->modifiers->sum('total_price');
+            $modifierTotal = (int) $cart->modifiers->sum('total_price') * (int) $cart->qty;
             // markup_price per row sudah terisi jika modifier berasal dari product_modifier_options
             // fallback ke full unit_price jika markup_price tidak tersedia atau 0 (modifier manual / data lama)
             $modifierMarkupTotal = (int) $cart->modifiers->sum(

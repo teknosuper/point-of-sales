@@ -59,7 +59,7 @@ class ReceiptLayoutService
             'items' => $items->map(function ($item) {
                 $qty = max(1, (int) ($item->qty ?? 1));
                 $lineTotal = (int) ($item->price ?? 0);
-                $modifierTotal = (int) collect($item->modifiers ?? [])->sum('total_price');
+                $modifierTotal = (int) collect($item->modifiers ?? [])->sum('total_price') * $qty;
                 $baseLineTotal = max(0, $lineTotal - $modifierTotal);
                 $unitPrice = (int) ($item->unit_price ?: ($qty ? $baseLineTotal / $qty : $baseLineTotal));
                 $baseUnitPrice = (int) ($item->base_unit_price ?: $unitPrice);

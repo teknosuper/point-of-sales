@@ -31,6 +31,26 @@ class HandleInertiaRequests extends Middleware
 
     public function share(Request $request): array
     {
+        // Skip heavy queries for lightweight JSON-only routes (health check etc.)
+        $routeName = $request->route()?->getName();
+        if ($routeName === 'transactions.health') {
+            return [
+                ...parent::share($request),
+                'auth' => [
+                    'user' => $request->user(),
+                    'permissions' => [],
+                    'roleNames' => [],
+                    'roleSummaries' => [],
+                    'accessProfile' => [
+                        'tenantScoped' => false,
+                        'accessibleOutletTypes' => [],
+                        'primaryOutletType' => null,
+                    ],
+                    'super' => false,
+                ],
+            ];
+        }
+
         $lowStockNotifications = [];
         $receivableNotifications = [];
         $payableNotifications = [];

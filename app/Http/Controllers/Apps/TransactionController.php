@@ -627,7 +627,7 @@ class TransactionController extends Controller
                         ...$base,
                         'status' => 'failed',
                         'failed_at' => $latestFailed->failed_at?->toISOString(),
-                        'minutes_ago' => (int) now()->diffInMinutes($latestFailed->failed_at),
+                        'minutes_ago' => abs((int) now()->diffInMinutes($latestFailed->failed_at)),
                         'device_name' => $latestFailed->device?->name ?? '-',
                         'reason' => $latestFailed->failure_reason ?? '',
                     ];
@@ -638,7 +638,7 @@ class TransactionController extends Controller
                     'status' => 'pending',
                     'failed_at' => $latestQueued->created_at?->toISOString(),
                     'minutes_ago' => $latestQueued->created_at
-                        ? (int) now()->diffInMinutes($latestQueued->created_at)
+                        ? abs((int) now()->diffInMinutes($latestQueued->created_at))
                         : 0,
                     'device_name' => $latestQueued->device?->name ?? '-',
                     'reason' => '',
@@ -2460,7 +2460,6 @@ class TransactionController extends Controller
         return response()->json([
             'ok' => true,
             'server_time' => now()->toIso8601String(),
-            'outlet_id' => $this->resolveActiveOutlet($request)?->id,
         ]);
     }
 

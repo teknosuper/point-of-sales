@@ -1,4 +1,6 @@
 import React, {
+    lazy,
+    Suspense,
     useEffect,
     useMemo,
     useState,
@@ -8,24 +10,11 @@ import React, {
 import { Head, Link, router, usePage } from "@inertiajs/react";
 import axios from "axios";
 import toast from "react-hot-toast";
-import Swal from "sweetalert2";
 import POSLayout from "@/Layouts/POSLayout";
 import ProductGrid from "@/Components/POS/ProductGrid";
-import ModifierOptionsModal from "@/Components/POS/ModifierOptionsModal";
-import CartLineItem from "@/Components/POS/CartLineItem";
 import CartPanel from "@/Components/POS/CartPanel";
 import PaymentPanel from "@/Components/POS/PaymentPanel";
 import CustomerSelect from "@/Components/POS/CustomerSelect";
-import NumpadModal from "@/Components/POS/NumpadModal";
-import HistoryModal from "@/Components/POS/HistoryModal";
-import OfflineHistoryModal from "@/Components/POS/OfflineHistoryModal";
-import ThermalPreviewModal from "@/Components/POS/ThermalPreviewModal";
-import KeyboardShortcutsModal from "@/Components/POS/KeyboardShortcutsModal";
-import CustomerInfoModal from "@/Components/POS/CustomerInfoModal";
-import TablePickerModal from "@/Components/POS/TablePickerModal";
-import CashPaymentModal from "@/Components/POS/CashPaymentModal";
-import ParkingTicketModal from "@/Components/POS/ParkingTicketModal";
-import PrintJobsModal from "@/Components/POS/PrintJobsModal";
 import HeldTransactions, {
     HoldButton,
 } from "@/Components/POS/HeldTransactions";
@@ -76,6 +65,26 @@ import {
     resolvedProductDisplayPrice,
     buildCartConsistencySignature,
 } from "@/Utils/posFormat";
+import {
+    confirmOpenShift,
+    confirmQrisPayment as confirmQrisPaymentDialog,
+    confirmCashPayment as confirmCashPaymentDialog,
+} from "./utils/swalHelpers";
+
+// Lazy-loaded modals — dimuat hanya saat pertama kali dibuka
+const ModifierOptionsModal = lazy(() => import("@/Components/POS/ModifierOptionsModal"));
+import CartLineItem from "@/Components/POS/CartLineItem";
+const NumpadModal = lazy(() => import("@/Components/POS/NumpadModal"));
+const HistoryModal = lazy(() => import("@/Components/POS/HistoryModal"));
+const OfflineHistoryModal = lazy(() => import("@/Components/POS/OfflineHistoryModal"));
+const ThermalPreviewModal = lazy(() => import("@/Components/POS/ThermalPreviewModal"));
+const KeyboardShortcutsModal = lazy(() => import("@/Components/POS/KeyboardShortcutsModal"));
+const CustomerInfoModal = lazy(() => import("@/Components/POS/CustomerInfoModal"));
+const TablePickerModal = lazy(() => import("@/Components/POS/TablePickerModal"));
+const CashPaymentModal = lazy(() => import("@/Components/POS/CashPaymentModal"));
+const ParkingTicketModal = lazy(() => import("@/Components/POS/ParkingTicketModal"));
+const PrintJobsModal = lazy(() => import("@/Components/POS/PrintJobsModal"));
+
 
 const ORDER_TYPE_LABEL = {
     take_away: "Take Away",
@@ -233,6 +242,9 @@ export default function Index({
         typeof navigator === "undefined" ? true : navigator.onLine
     );
     const [isServerReachable, setIsServerReachable] = useState(true);
+    const [healthCheckStatus, setHealthCheckStatus] = useState("idle"); // idle | checking | success | error
+    const [healthCheckError, setHealthCheckError] = useState(null); // { type: 'timeout'|'network'|'server', message: string }
+    const [lastHealthCheckAt, setLastHealthCheckAt] = useState(null);
     const isOfflineMode = !isBrowserOnline || !isServerReachable;
     const [offlineBootstrap, setOfflineBootstrap] = useState(() =>
         loadOfflinePosBootstrap()
@@ -1055,23 +1067,81 @@ export default function Index({
     }, []);
 
     const checkServerHealth = useCallback(async () => {
-        try {
-            // Jangan ubah isBrowserOnline di sini - itu dihandle oleh event listener window online/offline
-            if (typeof navigator !== "undefined" && !navigator.onLine) {
-                // Browser offline, skip health check ke server
-                return;
-            }
+        // Jangan ubah isBrowserOnline di sini - itu dihandle oleh event listener window online/offline
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+            setHealthCheckStatus("error");
+            setHealthCheckError({
+                type: "network",
+                message: "Perangkat tidak terhubung ke internet",
+            });
+            return;
+        }
 
+        setHealthCheckStatus("checking");
+        setHealthCheckError(null);
+
+        try {
+            const startTime = Date.now();
             await axios.get(route("transactions.health"), {
-                timeout: 5000,
+                timeout: 8000,
                 headers: {
                     Accept: "application/json",
                 },
             });
 
+            const responseTime = Date.now() - startTime;
+            const wasOffline = !isServerReachable;
             setIsServerReachable(true);
-        } catch {
+            setHealthCheckStatus("success");
+            setHealthCheckError(null);
+            setLastHealthCheckAt(new Date().toISOString());
+
+            // Notify user when server comes back online
+            if (wasOffline) {
+                toast.success("Server POS kembali online! Semua fitur tersedia.", {
+                    duration: 4000,
+                    icon: "✅",
+                });
+            }
+
+            // Log response time for debugging
+            if (responseTime > 3000) {
+                console.warn(`[POS] Server health check slow: ${responseTime}ms`);
+            }
+        } catch (error) {
             setIsServerReachable(false);
+            setHealthCheckStatus("error");
+            setLastHealthCheckAt(new Date().toISOString());
+
+            // Determine specific error type
+            if (error.code === "ECONNABORTED" || error.message?.includes("timeout")) {
+                setHealthCheckError({
+                    type: "timeout",
+                    message: "Server tidak merespons dalam 8 detik (timeout)",
+                });
+            } else if (error.response) {
+                // Server responded with error status
+                const status = error.response.status;
+                setHealthCheckError({
+                    type: "server",
+                    message: `Server error (${status}) - ${
+                        status >= 500
+                            ? "Server sedang bermasalah"
+                            : "Permintaan ditolak"
+                    }`,
+                });
+            } else if (error.request) {
+                // Request was made but no response received
+                setHealthCheckError({
+                    type: "network",
+                    message: "Tidak ada respons dari server - koneksi terputus",
+                });
+            } else {
+                setHealthCheckError({
+                    type: "network",
+                    message: `Kesalahan koneksi: ${error.message || "Unknown error"}`,
+                });
+            }
         }
     }, []);
 
@@ -1102,7 +1172,9 @@ export default function Index({
         };
 
         safeCheck();
-        const intervalId = window.setInterval(safeCheck, 30000);
+        // Check more frequently when offline (10s) vs online (30s)
+        const checkInterval = isOfflineMode ? 10000 : 30000;
+        const intervalId = window.setInterval(safeCheck, checkInterval);
 
     const handleWakeUp = () => {
             if (document.visibilityState === "visible") {
@@ -1489,14 +1561,33 @@ export default function Index({
                 label: "⚠️ Mode kasir offline - Tidak ada koneksi internet",
                 detail:
                     "Perangkat kasir tidak terhubung ke internet. Hanya transaksi tunai yang bisa diproses lokal sampai koneksi kembali. Periksa WiFi atau data seluler Anda.",
+                icon: "network",
             };
         }
 
         if (!isServerReachable) {
+            // Provide specific details based on health check error
+            const errorDetail = healthCheckError?.message || "Server POS sedang tidak merespons";
+            const errorType = healthCheckError?.type || "unknown";
+
+            let label = "⚠️ Mode kasir offline - Server POS tidak merespons";
+            let suggestion = "Transaksi tunai tetap disimpan lokal dan akan sinkron saat server kembali normal.";
+
+            if (errorType === "timeout") {
+                label = "⚠️ Mode kasir offline - Server timeout";
+                suggestion = "Server terlalu lama merespons. Kemungkinan server sedang loading berat atau koneksi lambat. Transaksi tunai tetap tersimpan lokal.";
+            } else if (errorType === "server") {
+                label = "⚠️ Mode kasir offline - Server error";
+                suggestion = "Server mengembalikan error. Kemungkinan ada masalah pada server. Hubungi admin jika berlanjut.";
+            } else if (errorType === "network") {
+                label = "⚠️ Mode kasir offline - Koneksi terputus";
+                suggestion = "Perangkat tidak dapat menghubungi server. Periksa jaringan atau VPN. Transaksi tunai tetap tersimpan lokal.";
+            }
+
             return {
-                label: "⚠️ Mode kasir offline - Server POS tidak merespons",
-                detail:
-                    "Internet perangkat tersedia ✓, tetapi server POS sedang tidak merespons. Transaksi tunai tetap disimpan lokal dan akan sinkron saat server kembali normal.",
+                label,
+                detail: `${errorDetail}. ${suggestion}`,
+                icon: errorType,
             };
         }
 
@@ -1504,14 +1595,16 @@ export default function Index({
             return {
                 label: "Menunggu sinkronisasi offline - transaksi lokal belum terkirim",
                 detail: `${offlineQueueCount} transaksi offline masih menunggu dikirim ke server.`,
+                icon: "sync",
             };
         }
 
         return {
             label: "Status offline",
             detail: "Mode offline aktif sementara.",
+            icon: "info",
         };
-    }, [isBrowserOnline, isServerReachable, offlineQueueCount]);
+    }, [isBrowserOnline, isServerReachable, offlineQueueCount, healthCheckError]);
     const offlinePendingItems = useMemo(
         () => offlineQueue.filter((item) => item.status !== "failed"),
         [offlineQueue]
@@ -2048,17 +2141,8 @@ export default function Index({
     const handleOpenShift = async () => {
         const openingCashNumber = Number(openingCashInput || 0);
 
-        const result = await Swal.fire({
-            title: "Buka shift kasir?",
-            html: `Modal awal akan disimpan sebesar <strong>${formatPrice(
-                openingCashNumber
-            )}</strong>.`,
-            icon: "question",
-            showCancelButton: true,
-            confirmButtonText: "Ya, Buka Shift",
-            cancelButtonText: "Batal",
-            confirmButtonColor: "#16a34a",
-            reverseButtons: true,
+        const result = await confirmOpenShift({
+            openingCashFormatted: formatPrice(openingCashNumber),
         });
 
         if (!result.isConfirmed) {
@@ -2488,38 +2572,10 @@ export default function Index({
         }
     };
 
-    const confirmQrisPayment = () =>
-        Swal.fire({
-            title: "Konfirmasi Pembayaran QRIS",
-            html: "Pastikan pembayaran QRIS manual sudah berhasil diterima.<br/>Lanjutkan hanya jika dana sudah benar-benar masuk.",
-            icon: "question",
-            showCancelButton: true,
-            confirmButtonText: "Sudah Dibayar",
-            cancelButtonText: "Periksa Lagi",
-            confirmButtonColor: "#16a34a",
-            cancelButtonColor: "#64748b",
-            reverseButtons: true,
-        });
+    const confirmQrisPayment = () => confirmQrisPaymentDialog();
 
     const confirmCashPayment = ({ total, paid }) =>
-        Swal.fire({
-            title: "Periksa Pembayaran Tunai",
-            html: `
-                <div style="text-align:left;display:grid;gap:8px;">
-                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Total</span><strong>${formatPrice(total)}</strong></div>
-                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Dibayar</span><strong>${formatPrice(paid)}</strong></div>
-                    <div style="display:flex;justify-content:space-between;gap:12px;"><span>Kembalian</span><strong>${formatPrice(Math.max(paid - total, 0))}</strong></div>
-                </div>
-                <p style="margin-top:16px;">Pastikan uang diterima dan kembalian sudah sesuai sebelum transaksi disimpan.</p>
-            `,
-            icon: "warning",
-            showCancelButton: true,
-            confirmButtonText: "Sudah Sesuai",
-            cancelButtonText: "Cek Lagi",
-            confirmButtonColor: "#16a34a",
-            cancelButtonColor: "#64748b",
-            reverseButtons: true,
-        });
+        confirmCashPaymentDialog({ total, paid, formatPrice });
 
     const submitTableOrderApproval = async () => {
         if (!tableOrderApprovalTarget?.id) {
@@ -5860,8 +5916,13 @@ export default function Index({
                 </div>
 
                 {failedPrintNotifications.length > 0 && showFailedPrintModal && (() => {
-                    const hasFailed = failedPrintNotifications.some(n => n.status === 'failed');
-                    const hasPending = failedPrintNotifications.some(n => n.status === 'pending');
+                    const visibleNotifications = failedPrintNotifications.filter(n => {
+                        const mins = Math.max(0, n.minutes_ago ?? 0);
+                        return mins <= 120;
+                    });
+                    if (visibleNotifications.length === 0) return null;
+                    const hasFailed = visibleNotifications.some(n => n.status === 'failed');
+                    const hasPending = visibleNotifications.some(n => n.status === 'pending');
                     const headerTitle = hasFailed && hasPending
                         ? 'Printer Dapur Bermasalah!'
                         : hasFailed
@@ -5888,13 +5949,13 @@ export default function Index({
                                         {headerTitle}
                                     </p>
                                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                                        {failedPrintNotifications.length} pesanan terdampar
+                                        {visibleNotifications.length} pesanan terdampar
                                     </p>
                                 </div>
                             </div>
                             <div className="max-h-[40vh] overflow-y-auto px-5 py-3">
                                 <div className="space-y-2">
-                                    {failedPrintNotifications.map((item) => {
+                                    {visibleNotifications.map((item) => {
                                         const isFailed = item.status === 'failed';
                                         return (
                                         <div
@@ -5938,7 +5999,7 @@ export default function Index({
                                                     ? 'text-red-500 dark:text-red-400'
                                                     : 'text-amber-500 dark:text-amber-400'
                                             }`}>
-                                                {item.minutes_ago} menit
+                                                {Math.abs(item.minutes_ago)} menit
                                             </span>
                                             {item.device_name && item.device_name !== '-' && (
                                                 <span className={`${
@@ -5977,13 +6038,52 @@ export default function Index({
                     <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200 lg:px-4 lg:py-3 max-h-[40vh] overflow-y-auto">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="min-w-0 flex-1">
-                                <p className="font-semibold text-xs sm:text-sm">
-                                    {offlineModeReason.label}
-                                </p>
+                                <div className="flex items-center gap-2">
+                                    <p className="font-semibold text-xs sm:text-sm">
+                                        {offlineModeReason.label}
+                                    </p>
+                                    {healthCheckStatus === "checking" && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                            <IconLoader2 size={10} className="animate-spin" />
+                                            Mengecek...
+                                        </span>
+                                    )}
+                                    {healthCheckStatus === "success" && isServerReachable && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                            <IconCheck size={10} />
+                                            Server OK
+                                        </span>
+                                    )}
+                                </div>
                                 {isOfflineBannerExpanded && (
                                 <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                                     {offlineModeReason.detail}
                                 </p>
+                                )}
+                                {isOfflineBannerExpanded && isOfflineMode && (
+                                <div className="mt-2 rounded-lg border border-amber-200/70 bg-white/50 p-2 dark:border-amber-900/30 dark:bg-slate-900/40">
+                                    <div className="flex items-center gap-2 text-[11px]">
+                                        <span className="font-semibold text-amber-800 dark:text-amber-200">Diagnostik:</span>
+                                        {healthCheckError && (
+                                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                                healthCheckError.type === 'timeout'
+                                                    ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300'
+                                                    : healthCheckError.type === 'server'
+                                                    ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                                                    : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                                            }`}>
+                                                {healthCheckError.type === 'timeout' && 'Timeout'}
+                                                {healthCheckError.type === 'server' && 'Server Error'}
+                                                {healthCheckError.type === 'network' && 'Network Error'}
+                                            </span>
+                                        )}
+                                        {lastHealthCheckAt && (
+                                            <span className="text-amber-600/80 dark:text-amber-400/80">
+                                                Terakhir cek: {new Date(lastHealthCheckAt).toLocaleTimeString('id-ID')}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
                                 )}
                                 {isOfflineBannerExpanded && (
                                 <>
@@ -6042,6 +6142,23 @@ export default function Index({
                                 )}
                             </div>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                {isOfflineMode && (
+                                    <button
+                                        type="button"
+                                        onClick={checkServerHealth}
+                                        disabled={healthCheckStatus === "checking"}
+                                        className="rounded-full bg-amber-600 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-amber-700 disabled:opacity-60 dark:bg-amber-500 dark:hover:bg-amber-600"
+                                    >
+                                        {healthCheckStatus === "checking" ? (
+                                            <span className="inline-flex items-center gap-1">
+                                                <IconLoader2 size={10} className="animate-spin" />
+                                                Mencoba...
+                                            </span>
+                                        ) : (
+                                            "Coba Hubungi Server"
+                                        )}
+                                    </button>
+                                )}
                                 {isOfflineBannerExpanded && (
                                 <button
                                     type="button"
@@ -7775,11 +7892,11 @@ export default function Index({
                                                             ) : null}
                                                         </div>
                                                     ) : null}
-                                                    {promoDetailText(item) ? (
+                                                    {(() => { const _promoDetail = promoDetailText(item); return _promoDetail ? (
                                                         <p className="mt-2 text-[11px] text-rose-600 dark:text-rose-300">
-                                                            {promoDetailText(item)}
+                                                            {_promoDetail}
                                                         </p>
-                                                    ) : null}
+                                                    ) : null; })()}
                                                     {item.modifiers?.length ? (
                                                         <div className="mt-2 flex flex-wrap gap-2">
                                                             {item.modifiers.map((modifier) => (
@@ -8210,178 +8327,180 @@ export default function Index({
                 </div>
             )}
 
-            <ModifierOptionsModal
-                product={modifierModalProduct}
-                orderType={modifierModalOrderType || orderType}
-                onOrderTypeChange={handleModifierOrderTypeChange}
-                cartTargetId={modifierModalCartTargetId}
-                quantity={modifierModalQuantity}
-                notesValue={modifierModalNotes}
-                onNotesChange={setModifierModalNotes}
-                onQuantityChange={handleModifierModalQuantityChange}
-                selectedModifierOptionIds={selectedModifierOptionIds}
-                onToggleModifierOption={handleToggleModifierOption}
-                selectedModifierTotal={modifierModalSelectedModifierTotal}
-                promo={modifierModalPromo}
-                promoBenefit={modifierModalPromoBenefit}
-                isPromoDetailOpen={isModifierPromoDetailOpen}
-                onTogglePromoDetail={() =>
-                    setIsModifierPromoDetailOpen((current) => !current)
-                }
-                onAddRewardProducts={handleAddRewardProducts}
-                onClose={closeModifierModal}
-                onSubmit={submitModifierModal}
-                isSubmitting={isModifierModalSubmitting}
-            />
+            <Suspense fallback={null}>
+                <ModifierOptionsModal
+                    product={modifierModalProduct}
+                    orderType={modifierModalOrderType || orderType}
+                    onOrderTypeChange={handleModifierOrderTypeChange}
+                    cartTargetId={modifierModalCartTargetId}
+                    quantity={modifierModalQuantity}
+                    notesValue={modifierModalNotes}
+                    onNotesChange={setModifierModalNotes}
+                    onQuantityChange={handleModifierModalQuantityChange}
+                    selectedModifierOptionIds={selectedModifierOptionIds}
+                    onToggleModifierOption={handleToggleModifierOption}
+                    selectedModifierTotal={modifierModalSelectedModifierTotal}
+                    promo={modifierModalPromo}
+                    promoBenefit={modifierModalPromoBenefit}
+                    isPromoDetailOpen={isModifierPromoDetailOpen}
+                    onTogglePromoDetail={() =>
+                        setIsModifierPromoDetailOpen((current) => !current)
+                    }
+                    onAddRewardProducts={handleAddRewardProducts}
+                    onClose={closeModifierModal}
+                    onSubmit={submitModifierModal}
+                    isSubmitting={isModifierModalSubmitting}
+                />
 
-            <CustomerInfoModal
-                open={isCustomerInfoModalOpen}
-                onClose={() => setIsCustomerInfoModalOpen(false)}
-                customers={customers}
-                draftCustomer={draftCustomer}
-                setDraftCustomer={setDraftCustomer}
-                errors={errors}
-                loyaltyTierOptions={loyaltyTierOptions}
-                openAddCustomerModalSignal={openAddCustomerModalSignal}
-                draftOrderType={draftOrderType}
-                setDraftOrderType={setDraftOrderType}
-                setDraftSelectedTableId={setDraftSelectedTableId}
-                draftOrderReferenceName={draftOrderReferenceName}
-                setDraftOrderReferenceName={setDraftOrderReferenceName}
-                diningTables={diningTables}
-                draftSelectedDiningTable={draftSelectedDiningTable}
-                onOpenTablePicker={() => {
-                    setTablePickerContext("draft");
-                    setIsTablePickerModalOpen(true);
-                }}
-                onSave={handleSaveCustomerInfo}
-            />
-
-
-            <TablePickerModal
-                open={
-                    isTablePickerModalOpen &&
-                    (isDraftTablePicker
-                        ? draftOrderType === "dine_in"
-                        : orderType === "dine_in")
-                }
-                onClose={() => setIsTablePickerModalOpen(false)}
-                diningTables={diningTables}
-                isDraftTablePicker={isDraftTablePicker}
-                selectedId={
-                    isDraftTablePicker
-                        ? draftSelectedTableId
-                        : selectedTableId
-                }
-                onSelect={
-                    isDraftTablePicker
-                        ? setDraftSelectedTableId
-                        : setSelectedTableId
-                }
-            />
+                <CustomerInfoModal
+                    open={isCustomerInfoModalOpen}
+                    onClose={() => setIsCustomerInfoModalOpen(false)}
+                    customers={customers}
+                    draftCustomer={draftCustomer}
+                    setDraftCustomer={setDraftCustomer}
+                    errors={errors}
+                    loyaltyTierOptions={loyaltyTierOptions}
+                    openAddCustomerModalSignal={openAddCustomerModalSignal}
+                    draftOrderType={draftOrderType}
+                    setDraftOrderType={setDraftOrderType}
+                    setDraftSelectedTableId={setDraftSelectedTableId}
+                    draftOrderReferenceName={draftOrderReferenceName}
+                    setDraftOrderReferenceName={setDraftOrderReferenceName}
+                    diningTables={diningTables}
+                    draftSelectedDiningTable={draftSelectedDiningTable}
+                    onOpenTablePicker={() => {
+                        setTablePickerContext("draft");
+                        setIsTablePickerModalOpen(true);
+                    }}
+                    onSave={handleSaveCustomerInfo}
+                />
 
 
-            {/* Numpad Modal */}
-            <NumpadModal
-                isOpen={numpadOpen}
-                onClose={() => setNumpadOpen(false)}
-                onConfirm={handleNumpadConfirm}
-                title="Jumlah Bayar"
-                initialValue={Number(cashInput) || 0}
-                isCurrency={true}
-            />
-
-            <CashPaymentModal
-                open={
-                    isCashPaymentModalOpen &&
-                    !payLater &&
-                    paymentMethod === "cash"
-                }
-                onClose={() => setIsCashPaymentModalOpen(false)}
-                quickCashAmounts={quickCashAmounts}
-                cashInput={cashInput}
-                setCashInput={setCashInput}
-                cash={cash}
-                payable={payable}
-            />
+                <TablePickerModal
+                    open={
+                        isTablePickerModalOpen &&
+                        (isDraftTablePicker
+                            ? draftOrderType === "dine_in"
+                            : orderType === "dine_in")
+                    }
+                    onClose={() => setIsTablePickerModalOpen(false)}
+                    diningTables={diningTables}
+                    isDraftTablePicker={isDraftTablePicker}
+                    selectedId={
+                        isDraftTablePicker
+                            ? draftSelectedTableId
+                            : selectedTableId
+                    }
+                    onSelect={
+                        isDraftTablePicker
+                            ? setDraftSelectedTableId
+                            : setSelectedTableId
+                    }
+                />
 
 
-            <OfflineHistoryModal
-                open={isOfflineHistoryOpen}
-                onClose={() => setIsOfflineHistoryOpen(false)}
-                offlinePendingItems={offlinePendingItems}
-                offlineFailedItems={offlineFailedItems}
-                offlineSyncedItems={offlineSyncedItems}
-                offlineHistoryFilter={offlineHistoryFilter}
-                setOfflineHistoryFilter={setOfflineHistoryFilter}
-                offlineQueue={offlineQueue}
-                handlePrintOfflineQueueItem={handlePrintOfflineQueueItem}
-                handlePrintSyncedReceipt={handlePrintSyncedReceipt}
-                retrySingleOfflineTransaction={retrySingleOfflineTransaction}
-                removeOfflineQueueItem={removeOfflineQueueItem}
-                syncOfflineQueue={syncOfflineQueue}
-                isOfflineMode={isOfflineMode}
-                isSyncingOfflineQueue={isSyncingOfflineQueue}
-            />
+                {/* Numpad Modal */}
+                <NumpadModal
+                    isOpen={numpadOpen}
+                    onClose={() => setNumpadOpen(false)}
+                    onConfirm={handleNumpadConfirm}
+                    title="Jumlah Bayar"
+                    initialValue={Number(cashInput) || 0}
+                    isCurrency={true}
+                />
+
+                <CashPaymentModal
+                    open={
+                        isCashPaymentModalOpen &&
+                        !payLater &&
+                        paymentMethod === "cash"
+                    }
+                    onClose={() => setIsCashPaymentModalOpen(false)}
+                    quickCashAmounts={quickCashAmounts}
+                    cashInput={cashInput}
+                    setCashInput={setCashInput}
+                    cash={cash}
+                    payable={payable}
+                />
 
 
-            <HistoryModal
-                open={isHistoryModalOpen}
-                historyFilters={historyFilters}
-                updateHistoryFilter={updateHistoryFilter}
-                resetHistoryFilters={resetHistoryFilters}
-                historyTransactions={historyTransactions}
-                historyMeta={historyMeta}
-                isHistoryLoading={isHistoryLoading}
-                isHistoryFilterExpanded={isHistoryFilterExpanded}
-                setIsHistoryFilterExpanded={setIsHistoryFilterExpanded}
-                selectedHistoryTransaction={selectedHistoryTransaction}
-                setSelectedHistoryTransactionId={setSelectedHistoryTransactionId}
-                closeHistoryModal={closeHistoryModal}
-                canCreateSalesReturn={canCreateSalesReturn}
-                canConfirmPayment={canConfirmPayment}
-                handleOpenHistoryReceipt={handleOpenHistoryReceipt}
-                handleRequeueHistoryReceipt={handleRequeueHistoryReceipt}
-                handleConfirmHistoryPayment={handleConfirmHistoryPayment}
-                openThermalPreview={openThermalPreview}
-                isRequeueingHistoryReceipt={isRequeueingHistoryReceipt}
-                isConfirmingHistoryPayment={isConfirmingHistoryPayment}
-            />
+                <OfflineHistoryModal
+                    open={isOfflineHistoryOpen}
+                    onClose={() => setIsOfflineHistoryOpen(false)}
+                    offlinePendingItems={offlinePendingItems}
+                    offlineFailedItems={offlineFailedItems}
+                    offlineSyncedItems={offlineSyncedItems}
+                    offlineHistoryFilter={offlineHistoryFilter}
+                    setOfflineHistoryFilter={setOfflineHistoryFilter}
+                    offlineQueue={offlineQueue}
+                    handlePrintOfflineQueueItem={handlePrintOfflineQueueItem}
+                    handlePrintSyncedReceipt={handlePrintSyncedReceipt}
+                    retrySingleOfflineTransaction={retrySingleOfflineTransaction}
+                    removeOfflineQueueItem={removeOfflineQueueItem}
+                    syncOfflineQueue={syncOfflineQueue}
+                    isOfflineMode={isOfflineMode}
+                    isSyncingOfflineQueue={isSyncingOfflineQueue}
+                />
 
 
-            {/* Thermal Preview Modal */}
-            <ThermalPreviewModal
-                open={isThermalPreviewOpen}
-                transaction={selectedHistoryTransaction}
-                thermalText={selectedHistoryThermalText}
-                onClose={() => setIsThermalPreviewOpen(false)}
-            />
+                <HistoryModal
+                    open={isHistoryModalOpen}
+                    historyFilters={historyFilters}
+                    updateHistoryFilter={updateHistoryFilter}
+                    resetHistoryFilters={resetHistoryFilters}
+                    historyTransactions={historyTransactions}
+                    historyMeta={historyMeta}
+                    isHistoryLoading={isHistoryLoading}
+                    isHistoryFilterExpanded={isHistoryFilterExpanded}
+                    setIsHistoryFilterExpanded={setIsHistoryFilterExpanded}
+                    selectedHistoryTransaction={selectedHistoryTransaction}
+                    setSelectedHistoryTransactionId={setSelectedHistoryTransactionId}
+                    closeHistoryModal={closeHistoryModal}
+                    canCreateSalesReturn={canCreateSalesReturn}
+                    canConfirmPayment={canConfirmPayment}
+                    handleOpenHistoryReceipt={handleOpenHistoryReceipt}
+                    handleRequeueHistoryReceipt={handleRequeueHistoryReceipt}
+                    handleConfirmHistoryPayment={handleConfirmHistoryPayment}
+                    openThermalPreview={openThermalPreview}
+                    isRequeueingHistoryReceipt={isRequeueingHistoryReceipt}
+                    isConfirmingHistoryPayment={isConfirmingHistoryPayment}
+                />
 
 
-            {/* Keyboard Shortcuts Help */}
-            <KeyboardShortcutsModal
-                open={showShortcuts}
-                onClose={() => setShowShortcuts(false)}
-            />
+                {/* Thermal Preview Modal */}
+                <ThermalPreviewModal
+                    open={isThermalPreviewOpen}
+                    transaction={selectedHistoryTransaction}
+                    thermalText={selectedHistoryThermalText}
+                    onClose={() => setIsThermalPreviewOpen(false)}
+                />
 
 
-            <ParkingTicketModal
-                open={isParkingTicketModalOpen}
-                onClose={() => setIsParkingTicketModalOpen(false)}
-                previewText={parkingTicketPreviewText}
-                quantity={parkingTicketQuantity}
-                setQuantity={setParkingTicketQuantity}
-                onQueue={handleQueueParkingTicket}
-                isSubmitting={isSubmittingParkingTicket}
-            />
+                {/* Keyboard Shortcuts Help */}
+                <KeyboardShortcutsModal
+                    open={showShortcuts}
+                    onClose={() => setShowShortcuts(false)}
+                />
 
-            <PrintJobsModal
-                open={isPrintJobsModalOpen}
-                onClose={() => setIsPrintJobsModalOpen(false)}
-                outletId={activeOutlet?.id}
-                onRequeue={handleRequeuePrintJob}
-                requeueingId={requeueingPrintJobId}
-            />
+
+                <ParkingTicketModal
+                    open={isParkingTicketModalOpen}
+                    onClose={() => setIsParkingTicketModalOpen(false)}
+                    previewText={parkingTicketPreviewText}
+                    quantity={parkingTicketQuantity}
+                    setQuantity={setParkingTicketQuantity}
+                    onQueue={handleQueueParkingTicket}
+                    isSubmitting={isSubmittingParkingTicket}
+                />
+
+                <PrintJobsModal
+                    open={isPrintJobsModalOpen}
+                    onClose={() => setIsPrintJobsModalOpen(false)}
+                    outletId={activeOutlet?.id}
+                    onRequeue={handleRequeuePrintJob}
+                    requeueingId={requeueingPrintJobId}
+                />
+            </Suspense>
 
         </>
     );

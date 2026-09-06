@@ -203,10 +203,10 @@ export function buildOfflinePricing(localCarts = []) {
                 item.product?.sell_price ||
                 0
         );
-        const modifierTotal = (item.modifiers || []).reduce(
+        const modifierTotal = Math.max(0, (item.modifiers || []).reduce(
             (sum, modifier) => sum + Number(modifier.total_price || 0),
             0
-        );
+        ) * qty);
         const lineTotal = baseUnitPrice * qty + modifierTotal;
 
         return {

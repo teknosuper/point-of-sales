@@ -313,11 +313,7 @@ export const buildCartPromoState = ({
         discountTotal: resolvedLine.discountTotal,
         productId: cartItem?.product_id,
     });
-    const modifierTotal = (cartItem?.modifiers || []).reduce(
-        (sum, modifier) =>
-            sum + Number(modifier?.total_price ?? modifier?.price ?? 0),
-        0
-    );
+    const modifierTotal = resolvedLine.modifierTotal;
 
     return {
         resolvedLine,
@@ -773,10 +769,10 @@ export function resolveCartPricingLine(cartItem, pricingItem = null) {
             Number(cartItem?.product?.effective_price ?? productSellPrice)
         );
     })();
-    const modifierTotal = (cartItem?.modifiers || []).reduce(
+    const modifierTotal = Math.max(0, (cartItem?.modifiers || []).reduce(
         (sum, modifier) => sum + Math.max(0, Number(modifier?.total_price || 0)),
         0
-    );
+    ) * qty);
     const isReward =
         Boolean(cartItem?.promo_reward_meta) || Boolean(cartItem?.is_promo_reward);
     const fallbackDirectPricing = (() => {
@@ -857,8 +853,9 @@ export function resolveCartPricingLine(cartItem, pricingItem = null) {
     const effectiveLineTotal = Math.max(
         0,
         Number(
-            pricingItem?.line_total ??
-                (fallbackDirectPricing
+            pricingItem?.line_total != null
+                ? pricingItem.line_total + modifierTotal
+                : (fallbackDirectPricing
                     ? Math.max(
                           0,
                           baseUnitPrice * qty + modifierTotal - fallbackDirectPricing.lineDiscount
@@ -995,11 +992,11 @@ export const buildLocalPricingPreview = (cartItems = []) => {
                 0,
                 baseUnitPrice - tenantBaseUnitPrice
             );
-            const modifierTotal = (cartItem?.modifiers || []).reduce(
+            const modifierTotal = Math.max(0, (cartItem?.modifiers || []).reduce(
                 (sum, modifier) =>
                     sum + Math.max(0, Number(modifier?.total_price || 0)),
                 0
-            );
+            ) * qty);
 
             return [
                 String(cartItem?.id),
@@ -1472,13 +1469,11 @@ export const buildLocalPricingPreview = (cartItems = []) => {
 
     const items = [...itemsMap.values()].map((item) => {
         const modifierTotal = Math.max(0, Number(item.modifier_total || 0));
-        const lineTotal = Math.max(0, Number(item.line_total || 0)) + modifierTotal;
 
         return {
             ...item,
-            line_total: lineTotal,
             effective_unit_price: Math.round(
-                Math.max(0, lineTotal - modifierTotal) / Math.max(1, Number(item.qty || 1))
+                Math.max(0, Number(item.line_total || 0)) / Math.max(1, Number(item.qty || 1))
             ),
         };
     });

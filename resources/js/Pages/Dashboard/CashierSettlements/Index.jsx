@@ -139,6 +139,7 @@ export default function Index({
     canCreateRequest = false,
     wallet = null,
     walletTransactions = {},
+    tenantAuditReport = null,
     ownerOverview = null,
     canViewMarkup = false,
 }) {
@@ -191,7 +192,7 @@ export default function Index({
 
         const requestedTab = new URLSearchParams(querySource).get("tab");
 
-        if (requestedTab && ["balance", "request", "transactions", "overview"].includes(requestedTab)) {
+        if (requestedTab && ["balance", "request", "transactions", "overview", "audit"].includes(requestedTab)) {
             return requestedTab;
         }
 
@@ -813,6 +814,12 @@ export default function Index({
                                     label: "Transaksi Masuk ke Saldo",
                                     description: "Daftar aktivitas saldo dengan filter detail dan pagination.",
                                     icon: <IconReceipt2 size={16} />,
+                                },
+                                {
+                                    key: "audit",
+                                    label: "Laporan Saldo",
+                                    description: "Rekap saldo masuk, penarikan, retur, dan pengecekan selisih.",
+                                    icon: <IconFileExport size={16} />,
                                 },
                             ].map((tab) => {
                                 const isActive = activeTab === tab.key;
@@ -2562,6 +2569,374 @@ export default function Index({
                      </div>
                  ) : null}
 
+                 {isTenantRequestMode && activeTab === "audit" && tenantAuditReport ? (
+                     <div className="space-y-6">
+                         {/* Summary Cards */}
+                         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                             <SummaryCard title="Total Saldo Masuk" value={formatCurrency(tenantAuditReport.summary?.claimable_total ?? 0)} description="Hak tenant dari transaksi yang sudah delivered" icon={<IconReceipt2 size={20} />} tone="emerald" />
+                             <SummaryCard title="Sudah Di-Withdraw" value={formatCurrency(tenantAuditReport.summary?.approved_total ?? 0)} description="Penarikan yang sudah disetujui dan dibayar" icon={<IconCheck size={20} />} tone="blue" />
+                             <SummaryCard title="Pending Approval" value={formatCurrency(tenantAuditReport.summary?.pending_total ?? 0)} description="Penarikan yang masih menunggu proses" icon={<IconClockHour4 size={20} />} tone="amber" />
+                             <SummaryCard title="Saldo Tersedia" value={formatCurrency(tenantAuditReport.summary?.available_balance ?? 0)} description="Sisa saldo yang bisa diajukan" icon={<IconCashBanknote size={20} />} tone="slate" />
+                         </div>
+
+                         {/* Reconciliation Status */}
+                         {tenantAuditReport.reconciliation ? (
+                             <div className={`rounded-2xl border p-4 ${tenantAuditReport.reconciliation.is_balanced ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20' : 'border-rose-200 bg-rose-50 dark:border-rose-900/40 dark:bg-rose-950/20'}`}>
+                                 <div className="flex items-center gap-3">
+                                     <div className={`rounded-xl p-3 ${tenantAuditReport.reconciliation.is_balanced ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-rose-100 dark:bg-rose-900/30'}`}>
+                                         {tenantAuditReport.reconciliation.is_balanced ? <IconCheck size={20} className="text-emerald-600" /> : <IconInfoCircle size={20} className="text-rose-600" />}
+                                     </div>
+                                     <div>
+                                         <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                             {tenantAuditReport.reconciliation.is_balanced ? 'Saldo Seimbang' : 'Selisih Terdeteksi'}
+                                         </p>
+                                         <p className="text-xs text-slate-600 dark:text-slate-400">
+                                             {tenantAuditReport.reconciliation.is_balanced
+                                                 ? 'Tidak ada selisih antara kalkulasi dan data penarikan.'
+                                                 : `Selisih: ${formatCurrency(Math.abs((tenantAuditReport.reconciliation.expected_remaining ?? 0) - (tenantAuditReport.summary?.available_balance ?? 0)))}`}
+                                         </p>
+                                     </div>
+                                 </div>
+                                 <div className="mt-3 grid gap-3 text-xs sm:grid-cols-3">
+                                     <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/30">
+                                         <p className="text-slate-500">Hak Masuk (kotor)</p>
+                                         <p className="mt-1 font-bold text-slate-900 dark:text-white">{formatCurrency(tenantAuditReport.reconciliation.claimable_total ?? 0)}</p>
+                                     </div>
+                                     <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/30">
+                                         <p className="text-slate-500">Potongan Retur</p>
+                                         <p className="mt-1 font-bold text-rose-600">{formatCurrency(tenantAuditReport.reconciliation.return_total ?? 0)}</p>
+                                     </div>
+                                     <div className="rounded-xl bg-white/70 p-3 dark:bg-slate-900/30">
+                                         <p className="text-slate-500">Total Sudah Dicairkan</p>
+                                         <p className="mt-1 font-bold text-blue-600">{formatCurrency(tenantAuditReport.reconciliation.actual_withdrawn ?? 0)}</p>
+                                     </div>
+                                 </div>
+                              </div>
+                          ) : null}
+
+                          {/* Income vs Saldo Flow */}
+                          <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                              <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Alur Penghasilan vs Saldo</h3>
+                              <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">Perbandingan total penghasilan kotor, hak tenant (saldo masuk), dan sisa saldo tersedia.</p>
+                              {(() => {
+                                  const grossSales = (tenantAuditReport.months ?? []).reduce((s, m) => s + (m.subtotal_total ?? 0), 0);
+                                  const tenantNet = tenantAuditReport.summary?.claimable_total ?? 0;
+                                  const withdrawn = tenantAuditReport.summary?.approved_total ?? 0;
+                                  const pending = tenantAuditReport.summary?.pending_total ?? 0;
+                                  const returns = tenantAuditReport.summary?.return_total ?? 0;
+                                  const available = tenantAuditReport.summary?.available_balance ?? 0;
+                                  const ownerMarkup = Math.max(0, grossSales - tenantNet - returns);
+
+                                  return (
+                                      <div className="space-y-4">
+                                          {/* Visual Flow */}
+                                          <div className="flex flex-col items-stretch gap-0 sm:flex-row sm:items-center">
+                                              <div className="flex-1 rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4 text-center dark:border-slate-700 dark:from-slate-800 dark:to-slate-900">
+                                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Penghasilan Kotor</p>
+                                                  <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">{formatCurrency(grossSales)}</p>
+                                                  <p className="mt-1 text-[11px] text-slate-500">Total transaksi dari pelanggan</p>
+                                              </div>
+                                              <div className="flex items-center justify-center py-2 sm:py-0 sm:px-2">
+                                                  <div className="text-xs font-bold text-slate-400">→</div>
+                                              </div>
+                                              <div className="flex-1 rounded-2xl border border-slate-200 bg-gradient-to-br from-emerald-50 to-white p-4 text-center dark:border-emerald-900/40 dark:from-emerald-950/20 dark:to-slate-900">
+                                                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-500">Hak Tenant (Saldo Masuk)</p>
+                                                  <p className="mt-1 text-xl font-bold text-emerald-600">{formatCurrency(tenantNet)}</p>
+                                                  <p className="mt-1 text-[11px] text-slate-500">Setelah dikurangi markup owner</p>
+                                              </div>
+                                              <div className="flex items-center justify-center py-2 sm:py-0 sm:px-2">
+                                                  <div className="text-xs font-bold text-slate-400">→</div>
+                                              </div>
+                                              <div className="flex-1 rounded-2xl border border-slate-200 bg-gradient-to-br from-blue-50 to-white p-4 text-center dark:border-blue-900/40 dark:from-blue-950/20 dark:to-slate-900">
+                                                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-500">Sudah Di-Withdraw</p>
+                                                  <p className="mt-1 text-xl font-bold text-blue-600">{formatCurrency(withdrawn + pending)}</p>
+                                                  <p className="mt-1 text-[11px] text-slate-500">{formatCurrency(withdrawn)} cair + {formatCurrency(pending)} pending</p>
+                                              </div>
+                                              <div className="flex items-center justify-center py-2 sm:py-0 sm:px-2">
+                                                  <div className="text-xs font-bold text-slate-400">=</div>
+                                              </div>
+                                              <div className="flex-1 rounded-2xl border border-primary-200 bg-gradient-to-br from-primary-50 to-white p-4 text-center dark:border-primary-900/40 dark:from-primary-950/20 dark:to-slate-900">
+                                                  <p className="text-xs font-semibold uppercase tracking-wide text-primary-500">Saldo Tersedia</p>
+                                                  <p className="mt-1 text-xl font-bold text-primary-600">{formatCurrency(available)}</p>
+                                                  <p className="mt-1 text-[11px] text-slate-500">Siap diajukan</p>
+                                              </div>
+                                          </div>
+
+                                          {/* Breakdown Table */}
+                                          <div className="overflow-x-auto">
+                                              <table className="w-full text-sm">
+                                                  <thead>
+                                                      <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
+                                                          <th className="px-3 py-3">Komponen</th>
+                                                          <th className="px-3 py-3 text-right">Nominal</th>
+                                                          <th className="px-3 py-3 text-right">% dari Kotor</th>
+                                                      </tr>
+                                                  </thead>
+                                                  <tbody>
+                                                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                          <td className="px-3 py-3 font-medium text-slate-900 dark:text-white">Penghasilan Kotor (Gross Sales)</td>
+                                                          <td className="px-3 py-3 text-right font-semibold text-slate-900 dark:text-white">{formatCurrency(grossSales)}</td>
+                                                          <td className="px-3 py-3 text-right text-slate-500">100%</td>
+                                                      </tr>
+                                                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                          <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Markup Owner</td>
+                                                          <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{formatCurrency(ownerMarkup)}</td>
+                                                          <td className="px-3 py-3 text-right text-slate-500">{grossSales > 0 ? ((ownerMarkup / grossSales) * 100).toFixed(1) : 0}%</td>
+                                                      </tr>
+                                                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                          <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Retur</td>
+                                                          <td className="px-3 py-3 text-right text-rose-600">{formatCurrency(returns)}</td>
+                                                          <td className="px-3 py-3 text-right text-slate-500">{grossSales > 0 ? ((returns / grossSales) * 100).toFixed(1) : 0}%</td>
+                                                      </tr>
+                                                      <tr className="border-b border-emerald-50 bg-emerald-50/50 dark:border-emerald-900/20 dark:bg-emerald-950/10">
+                                                          <td className="px-3 py-3 font-semibold text-emerald-700 dark:text-emerald-300">= Hak Tenant (Saldo Masuk)</td>
+                                                          <td className="px-3 py-3 text-right font-bold text-emerald-700 dark:text-emerald-300">{formatCurrency(tenantNet)}</td>
+                                                          <td className="px-3 py-3 text-right font-semibold text-emerald-600">{grossSales > 0 ? ((tenantNet / grossSales) * 100).toFixed(1) : 0}%</td>
+                                                      </tr>
+                                                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                          <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Sudah Di-Withdraw</td>
+                                                          <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(withdrawn)}</td>
+                                                          <td className="px-3 py-3 text-right text-slate-500">{grossSales > 0 ? ((withdrawn / grossSales) * 100).toFixed(1) : 0}%</td>
+                                                      </tr>
+                                                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                                                          <td className="px-3 py-3 text-slate-600 dark:text-slate-400">- Pending Withdraw</td>
+                                                          <td className="px-3 py-3 text-right text-amber-600">{formatCurrency(pending)}</td>
+                                                          <td className="px-3 py-3 text-right text-slate-500">{grossSales > 0 ? ((pending / grossSales) * 100).toFixed(1) : 0}%</td>
+                                                      </tr>
+                                                      <tr className="bg-primary-50/50 dark:bg-primary-950/10">
+                                                          <td className="px-3 py-3 font-bold text-primary-700 dark:text-primary-300">= Saldo Tersedia</td>
+                                                          <td className="px-3 py-3 text-right font-bold text-primary-700 dark:text-primary-300">{formatCurrency(available)}</td>
+                                                          <td className="px-3 py-3 text-right font-bold text-primary-600">{grossSales > 0 ? ((available / grossSales) * 100).toFixed(1) : 0}%</td>
+                                                      </tr>
+                                                  </tbody>
+                                              </table>
+                                          </div>
+                                      </div>
+                                  );
+                              })()}
+                          </div>
+
+                          {/* Daily Breakdown */}
+                          {tenantAuditReport.daily?.length > 0 ? (
+                              <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                                  <h3 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">Audit Harian: Withdraw vs Saldo</h3>
+                                  <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+                                      Monitoring apakah withdraw melebihi hak tenant. Baris merah = hari ada withdraw yang melebihi saldo kumulatif (kemungkinan markup owner ikut terhitung).
+                                  </p>
+
+                                  {/* Alert banner jika ada excess */}
+                                  {(tenantAuditReport.summary?.total_excess_withdrawal ?? 0) > 0 && (
+                                      <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-900/40 dark:bg-rose-950/20">
+                                          <div className="flex items-start gap-3">
+                                              <IconInfoCircle size={20} className="mt-0.5 shrink-0 text-rose-600" />
+                                              <div>
+                                                  <p className="text-sm font-semibold text-rose-800 dark:text-rose-200">Selisih Withdraw Terdeteksi</p>
+                                                  <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">
+                                                      Total withdraw melebihi saldo seharusnya sebesar <strong>{formatCurrency(tenantAuditReport.summary.total_excess_withdrawal)}</strong>. 
+                                                      Kemungkinan ada kesalahan perhitungan di mana markup owner ikut terhitung dalam hak tenant. Periksa baris yang ditandai di bawah.
+                                                  </p>
+                                              </div>
+                                          </div>
+                                      </div>
+                                  )}
+
+                                  <div className="overflow-x-auto">
+                                      <table className="w-full text-sm">
+                                          <thead>
+                                              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
+                                                  <th className="px-3 py-3">Tanggal</th>
+                                                  <th className="px-3 py-3 text-right">Hak Tenant</th>
+                                                  <th className="px-3 py-3 text-right">Withdraw</th>
+                                                  <th className="px-3 py-3 text-right">Retur</th>
+                                                  <th className="px-3 py-3 text-right">Saldo Kumulatif</th>
+                                                  <th className="px-3 py-3 text-right">Withdraw Kumulatif</th>
+                                                  <th className="px-3 py-3 text-right">Saldo Seharusnya</th>
+                                                  <th className="px-3 py-3 text-right">Selisih</th>
+                                                  <th className="px-3 py-3">Keterangan</th>
+                                              </tr>
+                                          </thead>
+                                          <tbody>
+                                              {tenantAuditReport.daily.map((day) => {
+                                                  const isDanger = day.audit_severity === 'danger';
+                                                  const isWarning = day.audit_severity === 'warning';
+                                                  const rowBg = isDanger
+                                                      ? 'bg-rose-50 dark:bg-rose-950/20'
+                                                      : isWarning
+                                                        ? 'bg-amber-50 dark:bg-amber-950/20'
+                                                        : '';
+
+                                                  return (
+                                                      <tr key={day.day_key} className={`border-b border-slate-100 last:border-0 dark:border-slate-800 ${rowBg}`}>
+                                                          <td className="px-3 py-3">
+                                                              <div className="font-medium text-slate-900 dark:text-white">{day.day_label}</div>
+                                                              {day.transactions_count > 0 && (
+                                                                  <div className="text-[11px] text-slate-400">{day.transactions_count} transaksi</div>
+                                                              )}
+                                                          </td>
+                                                          <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency(day.tenant_net)}</td>
+                                                          <td className={`px-3 py-3 text-right font-medium ${isDanger ? 'text-rose-700 font-bold' : 'text-blue-600'}`}>
+                                                              {day.withdrawn > 0 ? formatCurrency(day.withdrawn) : '-'}
+                                                          </td>
+                                                          <td className="px-3 py-3 text-right text-rose-600">{day.return_amount > 0 ? formatCurrency(day.return_amount) : '-'}</td>
+                                                          <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{formatCurrency(day.cum_earnings - day.cum_returns)}</td>
+                                                          <td className={`px-3 py-3 text-right ${isDanger ? 'font-bold text-rose-700' : 'text-blue-600'}`}>{formatCurrency(day.cum_withdrawals)}</td>
+                                                          <td className="px-3 py-3 text-right font-semibold text-slate-900 dark:text-white">{formatCurrency(day.correct_balance)}</td>
+                                                          <td className={`px-3 py-3 text-right font-bold ${day.excess_withdrawal > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                                              {day.excess_withdrawal > 0 ? `+${formatCurrency(day.excess_withdrawal)}` : formatCurrency(0)}
+                                                          </td>
+                                                          <td className="px-3 py-3">
+                                                              {day.audit_note ? (
+                                                                  <div className={`flex items-start gap-1.5 text-[11px] leading-tight ${isDanger ? 'text-rose-700 dark:text-rose-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                                                                      {isDanger ? <IconInfoCircle size={12} className="mt-0.5 shrink-0" /> : null}
+                                                                      <span>{day.audit_note}</span>
+                                                                  </div>
+                                                              ) : (
+                                                                  <span className="text-[11px] text-slate-400">-</span>
+                                                              )}
+                                                          </td>
+                                                      </tr>
+                                                  );
+                                              })}
+                                          </tbody>
+                                          <tfoot>
+                                              <tr className="border-t-2 border-slate-300 font-bold dark:border-slate-600">
+                                                  <td className="px-3 py-3 text-slate-900 dark:text-white">Total</td>
+                                                  <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency(tenantAuditReport.daily.reduce((s, d) => s + d.tenant_net, 0))}</td>
+                                                  <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(tenantAuditReport.daily.reduce((s, d) => s + d.withdrawn, 0))}</td>
+                                                  <td className="px-3 py-3 text-right text-rose-600">{formatCurrency(tenantAuditReport.daily.reduce((s, d) => s + d.return_amount, 0))}</td>
+                                                  <td className="px-3 py-3 text-right" colSpan={2}></td>
+                                                  <td className="px-3 py-3 text-right text-slate-900 dark:text-white">-</td>
+                                                  <td className="px-3 py-3 text-right font-bold text-rose-600">
+                                                      {(tenantAuditReport.summary?.total_excess_withdrawal ?? 0) > 0 ? formatCurrency(tenantAuditReport.summary.total_excess_withdrawal) : '-'}
+                                                  </td>
+                                                  <td></td>
+                                              </tr>
+                                          </tfoot>
+                                      </table>
+                                  </div>
+                              </div>
+                          ) : null}
+
+                          {/* Monthly Breakdown Table */}
+                         <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                             <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Rekap Per Bulan</h3>
+                             {tenantAuditReport.months?.length > 0 ? (
+                                 <div className="overflow-x-auto">
+                                     <table className="w-full text-sm">
+                                         <thead>
+                                             <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
+                                                 <th className="px-3 py-3">Periode</th>
+                                                 <th className="px-3 py-3 text-right">Transaksi</th>
+                                                 <th className="px-3 py-3 text-right">Hak Tenant</th>
+                                                 <th className="px-3 py-3 text-right">Disetujui</th>
+                                                 <th className="px-3 py-3 text-right">Pending</th>
+                                                 <th className="px-3 py-3 text-right">Ditolak</th>
+                                                 <th className="px-3 py-3 text-right">Sisa Saldo</th>
+                                             </tr>
+                                         </thead>
+                                         <tbody>
+                                             {tenantAuditReport.months.map((month) => (
+                                                 <tr key={month.month_key} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                                     <td className="px-3 py-3 font-medium text-slate-900 dark:text-white">{month.month_label}</td>
+                                                     <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{month.transactions_count}</td>
+                                                     <td className="px-3 py-3 text-right font-semibold text-emerald-600">{formatCurrency(month.tenant_net_total)}</td>
+                                                     <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(month.approved_amount)}</td>
+                                                     <td className="px-3 py-3 text-right text-amber-600">{formatCurrency(month.pending_amount)}</td>
+                                                     <td className="px-3 py-3 text-right text-rose-600">{formatCurrency(month.rejected_amount)}</td>
+                                                     <td className="px-3 py-3 text-right font-semibold text-slate-900 dark:text-white">{formatCurrency(month.remaining_balance)}</td>
+                                                 </tr>
+                                             ))}
+                                         </tbody>
+                                         <tfoot>
+                                             <tr className="border-t border-slate-200 font-semibold dark:border-slate-700">
+                                                 <td className="px-3 py-3 text-slate-900 dark:text-white">Total</td>
+                                                 <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{tenantAuditReport.months.reduce((s, m) => s + m.transactions_count, 0)}</td>
+                                                 <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.tenant_net_total, 0))}</td>
+                                                 <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.approved_amount, 0))}</td>
+                                                 <td className="px-3 py-3 text-right text-amber-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.pending_amount, 0))}</td>
+                                                 <td className="px-3 py-3 text-right text-rose-600">{formatCurrency(tenantAuditReport.months.reduce((s, m) => s + m.rejected_amount, 0))}</td>
+                                                 <td className="px-3 py-3 text-right text-slate-900 dark:text-white">{formatCurrency(tenantAuditReport.summary?.available_balance ?? 0)}</td>
+                                             </tr>
+                                         </tfoot>
+                                     </table>
+                                 </div>
+                             ) : (
+                                 <p className="text-sm text-slate-500 dark:text-slate-400">Belum ada data transaksi.</p>
+                             )}
+                         </div>
+
+                         {/* Recent Settlement Requests */}
+                         <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                             <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Riwayat Penarikan (Terbaru)</h3>
+                             {tenantAuditReport.recent_settlements?.length > 0 ? (
+                                 <div className="overflow-x-auto">
+                                     <table className="w-full text-sm">
+                                         <thead>
+                                             <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
+                                                 <th className="px-3 py-3">Nomor</th>
+                                                 <th className="px-3 py-3">Tanggal</th>
+                                                 <th className="px-3 py-3 text-right">Diajukan</th>
+                                                 <th className="px-3 py-3 text-right">Disetujui</th>
+                                                 <th className="px-3 py-3">Status</th>
+                                                 <th className="px-3 py-3">Waktu Proses</th>
+                                             </tr>
+                                         </thead>
+                                         <tbody>
+                                             {tenantAuditReport.recent_settlements.map((s) => (
+                                                 <tr key={s.id} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                                     <td className="px-3 py-3 font-medium text-slate-900 dark:text-white">{s.request_number}</td>
+                                                     <td className="px-3 py-3 text-slate-600 dark:text-slate-400">{s.business_date ?? '-'}</td>
+                                                     <td className="px-3 py-3 text-right text-slate-900 dark:text-white">{formatCurrency(s.requested_amount)}</td>
+                                                     <td className="px-3 py-3 text-right text-emerald-600">{s.status === 'approved' ? formatCurrency(s.approved_amount) : '-'}</td>
+                                                     <td className="px-3 py-3">
+                                                         <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusTone[s.status] || ''}`}>
+                                                             {statusLabel[s.status] ?? s.status}
+                                                         </span>
+                                                     </td>
+                                                     <td className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400">
+                                                         {s.status === 'approved' ? `Approve: ${s.approved_at ?? '-'}` : s.status === 'rejected' ? `Tolak: ${s.approved_at ?? '-'}` : '-'}
+                                                     </td>
+                                                 </tr>
+                                             ))}
+                                         </tbody>
+                                     </table>
+                                 </div>
+                             ) : (
+                                 <p className="text-sm text-slate-500 dark:text-slate-400">Belum ada riwayat penarikan.</p>
+                             )}
+                         </div>
+
+                         {/* Recent Returns */}
+                         {tenantAuditReport.recent_returns?.length > 0 ? (
+                             <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                                 <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Retur yang Mempengaruhi Saldo</h3>
+                                 <div className="overflow-x-auto">
+                                     <table className="w-full text-sm">
+                                         <thead>
+                                             <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-700">
+                                                 <th className="px-3 py-3">Kode</th>
+                                                 <th className="px-3 py-3">Invoice</th>
+                                                 <th className="px-3 py-3 text-right">Nilai Retur</th>
+                                                 <th className="px-3 py-3">Waktu</th>
+                                             </tr>
+                                         </thead>
+                                         <tbody>
+                                             {tenantAuditReport.recent_returns.map((r) => (
+                                                 <tr key={r.id} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                                     <td className="px-3 py-3 font-medium text-slate-900 dark:text-white">{r.code}</td>
+                                                     <td className="px-3 py-3 text-slate-600 dark:text-slate-400">{r.invoice ?? '-'}</td>
+                                                     <td className="px-3 py-3 text-right font-semibold text-rose-600">-{formatCurrency(r.total_amount)}</td>
+                                                     <td className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400">{r.completed_at ?? '-'}</td>
+                                                 </tr>
+                                             ))}
+                                         </tbody>
+                                     </table>
+                                 </div>
+                             </div>
+                         ) : null}
+                     </div>
+                 ) : null}
+
                  {approvalModal.open ? (
                     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4">
                         <div className="flex min-h-full items-center justify-center py-2">
@@ -2826,6 +3201,19 @@ export default function Index({
                                 <li>Gunakan filter untuk mencari pengajuan berdasarkan status, pengaju, atau rentang tanggal.</li>
                                 <li>Bukti pembayaran yang di-approve bisa dicetak langsung dari tabel riwayat.</li>
                             </ul>
+                        </div>
+
+                        <div>
+                            <p className="font-semibold text-slate-900 dark:text-white">
+                                Laporan Saldo (Audit)
+                            </p>
+                            <ol className="mt-2 list-decimal space-y-2 pl-5">
+                                <li>Tab <strong>Laporan Saldo</strong> menampilkan rekap lengkap saldo masuk, penarikan, dan retur per bulan.</li>
+                                <li>Gunakan bagian <strong>Reconciliation</strong> untuk mengecek apakah ada selisih antara kalkulasi saldo dan data penarikan.</li>
+                                <li>Jika ada selisih, hubungi admin untuk pengecekan lebih lanjut.</li>
+                                <li>Tabel <strong>Rekap Per Bulan</strong> memperlihatkan detail transaksi, hak tenant, approved, pending, ditolak, dan sisa saldo per bulan.</li>
+                                <li>Bagian <strong>Riwayat Penarikan</strong> menampilkan 10 penarikan terakhir beserta status prosesnya.</li>
+                            </ol>
                         </div>
                     </div>
                 </Modal>
