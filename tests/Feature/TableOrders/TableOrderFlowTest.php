@@ -398,6 +398,51 @@ class TableOrderFlowTest extends TestCase
         ]);
     }
 
+    public function test_customer_can_change_payment_method_on_pending_order(): void
+    {
+        $outlet = $this->createOutlet();
+
+        $table = DiningTable::create([
+            'outlet_id' => $outlet->id,
+            'name' => 'Meja 01',
+            'code' => 'M01',
+            'capacity' => 4,
+            'qr_token' => 'qr-token-001',
+            'status' => 'active',
+            'self_order_enabled' => true,
+        ]);
+
+        $product = $this->createProduct($outlet);
+
+        $customer = Customer::create([
+            'name' => 'Customer A',
+            'no_telp' => '081234567890',
+            'address' => 'Jl. Test No. 1',
+        ]);
+
+        $order = TableOrder::create([
+            'outlet_id' => $outlet->id,
+            'dining_table_id' => $table->id,
+            'customer_id' => $customer->id,
+            'order_number' => 'TBL-TEST001',
+            'access_token' => 'access-token-change-pm',
+            'source_channel' => 'table_qr',
+            'customer_name' => $customer->name,
+            'customer_phone' => $customer->no_telp,
+            'payment_method' => 'cash',
+            'status' => 'pending_cashier_payment',
+            'subtotal' => 25000,
+            'grand_total' => 25000,
+        ]);
+
+        $response = $this->post(route('table-order.change-payment-method', $order->access_token), [
+            'payment_method' => 'cash',
+        ]);
+
+        $response->assertRedirect(route('table-order.status', $order->access_token));
+        $this->assertSame('cash', $order->fresh()->payment_method);
+    }
+
     private function createProduct(Outlet $outlet, array $overrides = []): Product
     {
         $category = Category::create([

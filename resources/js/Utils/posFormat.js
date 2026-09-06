@@ -17,8 +17,24 @@ export const normalizeModifierGroupName = (value) => {
 
 export const formatApiErrorMessage = (error, fallbackMessage) => {
     const responseData = error?.response?.data;
-    const baseMessage =
-        responseData?.message || error?.message || fallbackMessage;
+    let baseMessage = responseData?.message || error?.message || fallbackMessage;
+
+    if (responseData?.errors && typeof responseData.errors === "object") {
+        const errorValues = Object.values(responseData.errors).flat().filter(Boolean);
+        if (errorValues.length > 0) {
+            const firstError = String(errorValues[0]);
+            if (
+                baseMessage === "The given data was invalid." ||
+                !baseMessage ||
+                baseMessage === fallbackMessage
+            ) {
+                baseMessage = firstError;
+            } else if (!baseMessage.includes(firstError)) {
+                baseMessage = `${baseMessage}: ${firstError}`;
+            }
+        }
+    }
+
     const detailMessage =
         responseData?.details ||
         responseData?.error?.message ||

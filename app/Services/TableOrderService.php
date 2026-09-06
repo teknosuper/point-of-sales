@@ -885,6 +885,84 @@ class TableOrderService
         return $tableOrder;
     }
 
+    public function changePaymentMethod(
+        TableOrder $tableOrder,
+        string $newPaymentMethod,
+        ?int $bankAccountId = null
+    ): TableOrder {
+        if ($tableOrder->status !== 'pending_cashier_payment') {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Metode pembayaran hanya dapat diubah saat pesanan masih menunggu pembayaran/approval.',
+            ]);
+        }
+
+        $tableOrder->loadMissing(['transaction', 'items.product', 'items.modifiers', 'customer', 'diningTable']);
+
+        if ($tableOrder->transaction && $tableOrder->transaction->payment_status === 'paid') {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Pesanan ini sudah dibayar dan tidak dapat diubah metode pembayarannya.',
+            ]);
+        }
+
+        $paymentMethod = $this->normalizePublicPaymentMethod($newPaymentMethod);
+        $bankAccountId = $paymentMethod === PaymentSetting::GATEWAY_BANK_TRANSFER
+            ? (int) ($bankAccountId ?? 0)
+            : null;
+
+        $subtotal = (int) ($tableOrder->subtotal ?: $tableOrder->items->sum('line_total'));
+        $paymentSurcharge = $this->resolvePublicPaymentSurcharge($tableOrder->outlet_id, $paymentMethod, $subtotal);
+        $grandTotal = $subtotal + (int) ($paymentSurcharge['total'] ?? 0);
+
+        return DB::transaction(function () use ($tableOrder, $paymentMethod, $bankAccountId, $subtotal, $grandTotal) {
+            $oldTransaction = $tableOrder->transaction;
+
+            if ($oldTransaction) {
+                $tableOrder->forceFill(['transaction_id' => null])->save();
+                foreach ($oldTransaction->details as $detail) {
+                    $detail->modifiers()->delete();
+                }
+                $oldTransaction->details()->delete();
+                $oldTransaction->profits()->delete();
+                $oldTransaction->delete();
+            }
+
+            $tableOrder->forceFill([
+                'payment_method' => $paymentMethod,
+                'subtotal' => $subtotal,
+                'grand_total' => $grandTotal,
+                'transaction_id' => null,
+            ])->save();
+
+            if ($paymentMethod !== 'cash') {
+                $newTransaction = $this->createPendingSelfServiceTransaction(
+                    $tableOrder->fresh(['items.product', 'items.modifiers', 'customer']),
+                    $paymentMethod,
+                    $bankAccountId
+                );
+
+                $tableOrder->forceFill([
+                    'transaction_id' => $newTransaction->id,
+                ])->save();
+            }
+
+            $tableOrder = $tableOrder->fresh(['items.modifiers', 'diningTable', 'outlet', 'transaction.bankAccount']);
+
+            $this->auditLogService->log(
+                event: 'table_order.payment_method_changed',
+                module: 'table_orders',
+                auditable: $tableOrder,
+                description: "Metode pembayaran pesanan {$tableOrder->order_number} diubah menjadi {$paymentMethod}.",
+                after: [
+                    'payment_method' => $paymentMethod,
+                    'grand_total' => $grandTotal,
+                    'has_transaction' => $tableOrder->transaction_id !== null,
+                ]
+            );
+
+            return $tableOrder;
+        });
+    }
+
     private function generateOrderNumber(): string
     {
         return 'TBL-'.Str::upper(Str::random(8));

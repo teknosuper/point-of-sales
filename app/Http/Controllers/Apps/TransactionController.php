@@ -236,48 +236,65 @@ class TransactionController extends Controller
             $this->releaseCheckoutReservationState($request, $outlet);
         }
 
-        $products = Product::query()
-            ->whereIn('id', collect($reservationState['items'])->pluck('product_id')->filter()->all())
-            ->get()
-            ->keyBy('id');
+        try {
+            DB::transaction(function () use ($request, $outlet, $reservationState, $sessionKey) {
+                $products = Product::query()
+                    ->whereIn('id', collect($reservationState['items'])->pluck('product_id')->filter()->all())
+                    ->get()
+                    ->keyBy('id');
 
-        foreach ($reservationState['items'] as $item) {
-            $product = $products->get((int) ($item['product_id'] ?? 0));
-            $qty = (int) ($item['qty'] ?? 0);
+                foreach ($reservationState['items'] as $item) {
+                    $product = $products->get((int) ($item['product_id'] ?? 0));
+                    $qty = (int) ($item['qty'] ?? 0);
 
-            if (! $product || $qty <= 0 || ! $outlet) {
-                continue;
-            }
+                    if (! $product || $qty <= 0 || ! $outlet) {
+                        continue;
+                    }
 
-            $this->stockMutationService->decrementForOutlet(
-                $product,
-                (int) $outlet->id,
-                $qty,
-                'pos_checkout_reservation',
-                (int) auth()->id(),
-                'Stok dikunci sementara untuk checkout POS kasir.',
-                auth()->id()
-            );
+                    $this->stockMutationService->decrementForOutlet(
+                        $product,
+                        (int) $outlet->id,
+                        $qty,
+                        'pos_checkout_reservation',
+                        (int) auth()->id(),
+                        'Stok dikunci sementara untuk checkout POS kasir.',
+                        auth()->id()
+                    );
+                }
+
+                $request->session()->put($sessionKey, [
+                    'signature' => $reservationState['signature'],
+                    'items' => $reservationState['items'],
+                    'reserved_at' => now()->toIso8601String(),
+                ]);
+                PosCheckoutReservation::query()->create([
+                    'user_id' => (int) auth()->id(),
+                    'outlet_id' => $outlet?->id,
+                    'signature' => $reservationState['signature'],
+                    'items' => $reservationState['items'],
+                    'status' => 'active',
+                    'reserved_at' => now(),
+                    'last_seen_at' => now(),
+                ]);
+                $request->session()->put(
+                    $this->checkoutReservationPreviewSessionKey($outlet?->id),
+                    true
+                );
+            });
+        } catch (ValidationException $exception) {
+            $errorMessage = collect($exception->errors())->flatten()->first() ?: $exception->getMessage();
+
+            return response()->json([
+                'success' => false,
+                'message' => $errorMessage,
+                'errors' => $exception->errors(),
+            ], 422);
+        } catch (\Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengunci stok: ' . $exception->getMessage(),
+            ], 500);
         }
-
-        $request->session()->put($sessionKey, [
-            'signature' => $reservationState['signature'],
-            'items' => $reservationState['items'],
-            'reserved_at' => now()->toIso8601String(),
-        ]);
-        PosCheckoutReservation::query()->create([
-            'user_id' => (int) auth()->id(),
-            'outlet_id' => $outlet?->id,
-            'signature' => $reservationState['signature'],
-            'items' => $reservationState['items'],
-            'status' => 'active',
-            'reserved_at' => now(),
-            'last_seen_at' => now(),
-        ]);
-        $request->session()->put(
-            $this->checkoutReservationPreviewSessionKey($outlet?->id),
-            true
-        );
 
         return response()->json([
             'success' => true,

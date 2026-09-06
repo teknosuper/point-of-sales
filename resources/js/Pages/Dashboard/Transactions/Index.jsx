@@ -69,6 +69,7 @@ import {
     confirmOpenShift,
     confirmQrisPayment as confirmQrisPaymentDialog,
     confirmCashPayment as confirmCashPaymentDialog,
+    showValidationErrorModal,
 } from "./utils/swalHelpers";
 
 // Lazy-loaded modals — dimuat hanya saat pertama kali dibuka
@@ -245,7 +246,7 @@ export default function Index({
     const [healthCheckStatus, setHealthCheckStatus] = useState("idle"); // idle | checking | success | error
     const [healthCheckError, setHealthCheckError] = useState(null); // { type: 'timeout'|'network'|'server', message: string }
     const [lastHealthCheckAt, setLastHealthCheckAt] = useState(null);
-    const isOfflineMode = !isBrowserOnline || !isServerReachable;
+    const isOfflineMode = false;
     const [offlineBootstrap, setOfflineBootstrap] = useState(() =>
         loadOfflinePosBootstrap()
     );
@@ -968,47 +969,8 @@ export default function Index({
     }, [auth?.user?.id, offlineBootstrap]);
 
     const persistOfflineSnapshot = useCallback(async () => {
-        if (
-            isOfflineMode ||
-            !activeCashierShiftProp
-        ) {
-            setIsPreparingOfflineSnapshot(false);
-            return;
-        }
-
-        setIsPreparingOfflineSnapshot(true);
-
-        try {
-            const response = await axios.get(
-                route("transactions.offline-bootstrap"),
-                {
-                    timeout: 20000,
-                    headers: {
-                        Accept: "application/json",
-                    },
-                }
-            );
-
-            const snapshot = {
-                saved_at: new Date().toISOString(),
-                ...(response.data?.data || {}),
-            };
-
-            saveOfflinePosBootstrap(snapshot);
-            setOfflineBootstrap(snapshot);
-        } catch (error) {
-            if (error?.code === 'ECONNABORTED' || error?.response?.status === 422) {
-                console.debug("[POS] Offline snapshot skipped:", error?.response?.data?.message || error?.code);
-            } else {
-                console.warn("[POS] Offline bootstrap fetch failed:", error?.message || error);
-            }
-        } finally {
-            setIsPreparingOfflineSnapshot(false);
-        }
-    }, [
-        activeCashierShiftProp,
-        isOfflineMode,
-    ]);
+        setIsPreparingOfflineSnapshot(false);
+    }, []);
 
     useEffect(() => {
         persistOfflineSnapshot();
@@ -1158,40 +1120,11 @@ export default function Index({
     }, [checkServerHealth, persistOfflineSnapshot, syncOfflineDeviceStatus]);
 
     useEffect(() => {
-        let cancelled = false;
-        const safeCheck = async () => {
-            if (cancelled) {
-                return;
-            }
-
-            if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-                return;
-            }
-
-            await checkServerHealth();
-        };
-
-        safeCheck();
-        // Check more frequently when offline (10s) vs online (30s)
-        const checkInterval = isOfflineMode ? 10000 : 30000;
-        const intervalId = window.setInterval(safeCheck, checkInterval);
-
-    const handleWakeUp = () => {
-            if (document.visibilityState === "visible") {
-                safeCheck();
-            }
-        };
-
-        window.addEventListener("focus", safeCheck);
-        document.addEventListener("visibilitychange", handleWakeUp);
-
-        return () => {
-            cancelled = true;
-            window.clearInterval(intervalId);
-            window.removeEventListener("focus", safeCheck);
-            document.removeEventListener("visibilitychange", handleWakeUp);
-        };
-    }, [checkServerHealth]);
+        // Mode offline dinonaktifkan: POS berjalan 100% online real-time terintegrasi dapur & tenant
+        setIsServerReachable(true);
+        setHealthCheckStatus("idle");
+        setHealthCheckError(null);
+    }, []);
 
     const openProductSelection = useCallback((product) => {
         if (!product?.id) return;
@@ -4512,12 +4445,15 @@ export default function Index({
                 }
             }
 
-            toast.error(
-                formatApiErrorMessage(
-                    error,
-                    "Stok gagal dikunci untuk checkout"
-                )
+            const checkoutErrorMessage = formatApiErrorMessage(
+                error,
+                "Stok gagal dikunci untuk checkout"
             );
+            toast.error(checkoutErrorMessage, { duration: 5000 });
+            void showValidationErrorModal({
+                title: "Stok Tidak Mencukupi",
+                message: checkoutErrorMessage,
+            });
             return;
         } finally {
             setIsPreparingCheckoutPreview(false);

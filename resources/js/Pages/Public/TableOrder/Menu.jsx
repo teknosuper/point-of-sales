@@ -1557,7 +1557,7 @@ export default function Menu({
     }, [cartLines, cartStorageKey, orderForm.data.notes]);
 
     useEffect(() => {
-        if (!modifierModalProduct || !modifierModalDraftCart) {
+        if (!modifierModalProduct || !modifierModalDraftCart || !customer) {
             modifierModalPricingAbortRef.current?.abort?.();
             if (modifierModalPricingTimerRef.current) {
                 window.clearTimeout(modifierModalPricingTimerRef.current);
@@ -1615,6 +1615,7 @@ export default function Menu({
         };
     }, [
         buildPreviewRequestItems,
+        customer,
         modifierModalDraftCart,
         modifierModalProduct,
         normalizedCarts,
@@ -1624,7 +1625,7 @@ export default function Menu({
     ]);
 
     useEffect(() => {
-        if (normalizedCarts.length === 0) {
+        if (!customer || normalizedCarts.length === 0) {
             pricingRequestAbortRef.current?.abort?.();
             setPricingPreview(emptyPricingPreview);
             setIsLoadingPricing(false);
@@ -1680,6 +1681,7 @@ export default function Menu({
         };
     }, [
         buildPreviewRequestItems,
+        customer,
         normalizedCarts,
         orderForm.data.notes,
         orderForm.data.payment_method,
@@ -2162,23 +2164,27 @@ export default function Menu({
                         </div>
 
                         {/* Tombol lanjut ke bayar — sticky bottom */}
-                        <div className="border-t border-slate-100 bg-white p-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]">
-                            <div className="flex items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                    <p className="text-[11px] text-slate-400">{customer?.name || "Pelanggan"}</p>
-                                    <p className="text-base font-bold text-slate-900">{formatPrice(payable)}</p>
+                        <div className="border-t border-slate-100 bg-white p-3.5 pb-[calc(env(safe-area-inset-bottom,0px)+0.85rem)] shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.05)]">
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="font-medium text-slate-500">{customer?.name || "Pelanggan"}</span>
+                                    <div className="text-right">
+                                        <span className="text-[11px] text-slate-400">Total Pembayaran: </span>
+                                        <span className="text-base font-extrabold text-primary-600">{formatPrice(payable)}</span>
+                                    </div>
                                 </div>
                                 <button
                                     type="button"
                                     onClick={openPaymentInfoTab}
-                                    className={`flex h-11 shrink-0 items-center gap-2 rounded-xl px-5 text-sm font-bold transition-all ${
+                                    disabled={!normalizedCarts.length}
+                                    className={`flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-sm font-bold shadow-lg transition-all ${
                                         !normalizedCarts.length
-                                            ? "cursor-not-allowed bg-slate-100 text-slate-400"
-                                            : "bg-slate-900 text-white shadow-lg shadow-slate-900/20 active:scale-95"
+                                            ? "cursor-not-allowed bg-slate-100 text-slate-400 shadow-none"
+                                            : "bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-primary-500/25 hover:from-primary-600 hover:to-primary-700 active:scale-[0.99]"
                                     }`}
                                 >
-                                    <IconCash size={16} />
-                                    Bayar
+                                    <IconCash size={18} />
+                                    <span>Lanjut ke Pembayaran ({formatPrice(payable)})</span>
                                 </button>
                             </div>
                         </div>
@@ -2533,11 +2539,11 @@ export default function Menu({
                                         </div>
                                     )}
                                     <div className="h-px bg-slate-200" />
-                                    <div className="flex justify-between">
+                                    <div className="flex items-center justify-between">
                                         <span className="text-base font-semibold text-slate-800">
                                             Total
                                         </span>
-                                        <span className="text-xl font-bold text-primary-600">
+                                        <span className={`text-xl font-bold transition-colors ${isLoadingPricing ? 'text-primary-400 animate-pulse' : 'text-primary-600'}`}>
                                             {formatPrice(payable)}
                                         </span>
                                     </div>
@@ -2739,7 +2745,7 @@ export default function Menu({
                         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">
                             Keranjang
                         </p>
-                        <p className="truncate text-sm font-bold text-white">
+                        <p className={`truncate text-sm font-bold transition-colors ${isLoadingPricing ? 'text-white/70 animate-pulse' : 'text-white'}`}>
                             {formatPrice(payable)}
                         </p>
                     </div>

@@ -111,32 +111,8 @@ class PublicTableOrderController extends Controller
             $table->outlet_id,
             $identifiedCustomer
         );
-        $paymentSetting = PaymentSetting::resolveForOutlet($table->outlet_id);
-        $paymentMethods = collect($paymentSetting?->enabledGateways($table->outlet_id) ?? [])
-            ->reject(fn (array $gateway) => ($gateway['value'] ?? null) === PaymentSetting::GATEWAY_QRIS)
-            ->values();
-        $selfOrderPaymentMethods = collect([
-            [
-                'value' => 'cash',
-                'label' => 'Bayar di Kasir',
-                'description' => 'Pesanan dikirim dulu ke kasir, lalu pembayaran di-approve kasir seperti alur sekarang.',
-                'kind' => 'cashier',
-            ],
-        ])->concat(
-            $paymentMethods->map(fn (array $gateway) => [
-                'value' => (string) $gateway['value'],
-                'label' => (string) $gateway['label'],
-                'description' => (string) $gateway['description'],
-                'kind' => in_array($gateway['value'], [PaymentSetting::GATEWAY_XENDIT, PaymentSetting::GATEWAY_MIDTRANS, PaymentSetting::GATEWAY_PAKASIR], true)
-                    ? 'online'
-                    : 'manual',
-            ])
-        )->values();
-        $bankAccounts = BankAccount::query()
-            ->active()
-            ->where('outlet_id', $table->outlet_id)
-            ->ordered()
-            ->get(['id', 'bank_name', 'account_number', 'account_name', 'logo', 'outlet_id', 'is_active', 'sort_order']);
+        $selfOrderPaymentMethods = $this->resolveSelfOrderPaymentMethods($table->outlet_id);
+        $bankAccounts = $this->resolveSelfOrderBankAccounts($table->outlet_id);
 
         $outletId = $table->outlet_id;
         $outletRecord = $table->outlet;
@@ -396,6 +372,10 @@ class PublicTableOrderController extends Controller
             ->filter()
             ->values();
 
+        $selfOrderPaymentMethods = $this->resolveSelfOrderPaymentMethods((int) $order->outlet_id);
+        $bankAccounts = $this->resolveSelfOrderBankAccounts((int) $order->outlet_id);
+        $canChangePaymentMethod = $order->status === 'pending_cashier_payment' && ($order->transaction === null || $order->transaction->payment_status !== 'paid');
+
         return Inertia::render('Public/TableOrder/Status', [
             'order' => [
                 'id' => $order->id,
@@ -409,6 +389,7 @@ class PublicTableOrderController extends Controller
                 'status' => $order->status,
                 'can_cancel' => $order->status === 'pending_cashier_payment' && $order->transaction_id === null,
                 'can_adjust_items' => $order->status === 'pending_cashier_payment' && $order->transaction_id === null,
+                'can_change_payment_method' => $canChangePaymentMethod,
                 'subtotal' => $order->resolvedSubtotal(),
                 'base_subtotal' => (int) $order->items->sum(fn ($item) => ((int) ($item->base_unit_price ?? $item->unit_price) * (int) $item->qty) + (int) $item->modifiers->sum('total_price')),
                 'discount_total' => (int) $order->items->sum('discount_total'),
@@ -489,6 +470,8 @@ class PublicTableOrderController extends Controller
                 ] : null,
                 'stock_alerts' => $stockAlerts->all(),
             ],
+            'paymentMethods' => $selfOrderPaymentMethods,
+            'bankAccounts' => $bankAccounts,
             'identity' => [
                 'customer' => $order->customer
                     ? $this->customerPayload(
@@ -500,6 +483,70 @@ class PublicTableOrderController extends Controller
                     : null,
             ],
         ]);
+    }
+
+    public function changePaymentMethod(
+        Request $request,
+        string $accessToken,
+        PaymentGatewayManager $paymentGatewayManager
+    ) {
+        $order = TableOrder::query()
+            ->with(['diningTable', 'transaction'])
+            ->where('access_token', $accessToken)
+            ->firstOrFail();
+
+        if ($order->status !== 'pending_cashier_payment' || ($order->transaction && $order->transaction->payment_status === 'paid')) {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Metode pembayaran pesanan ini sudah tidak dapat diubah.',
+            ]);
+        }
+
+        $availablePaymentMethods = $this->resolveSelfOrderPaymentMethods((int) $order->outlet_id)
+            ->pluck('value')
+            ->all();
+
+        $data = $request->validate([
+            'payment_method' => ['required', 'string', Rule::in($availablePaymentMethods)],
+            'bank_account_id' => [
+                'nullable',
+                Rule::requiredIf($request->input('payment_method') === PaymentSetting::GATEWAY_BANK_TRANSFER),
+                Rule::exists('bank_accounts', 'id')->where(fn ($query) => $query
+                    ->where('outlet_id', $order->outlet_id)
+                    ->where('is_active', true)
+                ),
+            ],
+        ], [
+            'payment_method.required' => 'Pilih metode pembayaran yang diinginkan.',
+            'payment_method.in' => 'Metode pembayaran yang dipilih tidak tersedia untuk outlet ini.',
+            'bank_account_id.required' => 'Pilih rekening tujuan untuk transfer bank.',
+            'bank_account_id.exists' => 'Rekening tujuan yang dipilih tidak aktif atau tidak ditemukan.',
+        ]);
+
+        $newPaymentMethod = (string) $data['payment_method'];
+        $bankAccountId = $newPaymentMethod === PaymentSetting::GATEWAY_BANK_TRANSFER
+            ? (int) ($data['bank_account_id'] ?? 0)
+            : null;
+
+        $updatedOrder = $this->tableOrderService->changePaymentMethod(
+            $order,
+            $newPaymentMethod,
+            $bankAccountId
+        );
+
+        if (in_array($newPaymentMethod, [PaymentSetting::GATEWAY_XENDIT, PaymentSetting::GATEWAY_MIDTRANS, PaymentSetting::GATEWAY_PAKASIR], true)) {
+            try {
+                $this->ensurePakasirPaymentPayload($updatedOrder, $paymentGatewayManager);
+                $this->refreshPaymentLink($updatedOrder, $paymentGatewayManager);
+            } catch (PaymentGatewayException $exception) {
+                return redirect()
+                    ->route('table-order.status', $order->access_token)
+                    ->with('warning', 'Metode pembayaran berhasil diubah ke ' . $newPaymentMethod . ', namun link pembayaran gagal dibuat otomatis: ' . $exception->getMessage());
+            }
+        }
+
+        return redirect()
+            ->route('table-order.status', $order->access_token)
+            ->with('success', 'Metode pembayaran berhasil diubah.');
     }
 
     public function cancelStatus(Request $request, string $accessToken)
@@ -1150,5 +1197,48 @@ class PublicTableOrderController extends Controller
             'payment_number' => $paymentNumber,
             'expired_at' => $expiredAt,
         ];
+    }
+
+    private function resolveSelfOrderPaymentMethods(int $outletId): \Illuminate\Support\Collection
+    {
+        $paymentSetting = PaymentSetting::resolveForOutlet($outletId);
+        $paymentMethods = collect($paymentSetting?->enabledGateways($outletId) ?? [])
+            ->reject(fn (array $gateway) => ($gateway['value'] ?? null) === PaymentSetting::GATEWAY_QRIS)
+            ->values();
+
+        return collect([
+            [
+                'value' => 'cash',
+                'label' => 'Bayar di Kasir',
+                'description' => 'Pesanan dikirim dulu ke kasir, lalu pembayaran di-approve kasir seperti alur sekarang.',
+                'kind' => 'cashier',
+            ],
+        ])->concat(
+            $paymentMethods->map(fn (array $gateway) => [
+                'value' => (string) $gateway['value'],
+                'label' => (string) $gateway['label'],
+                'description' => (string) $gateway['description'],
+                'kind' => in_array($gateway['value'], [PaymentSetting::GATEWAY_XENDIT, PaymentSetting::GATEWAY_MIDTRANS, PaymentSetting::GATEWAY_PAKASIR], true)
+                    ? 'online'
+                    : 'manual',
+            ])
+        )->values();
+    }
+
+    private function resolveSelfOrderBankAccounts(int $outletId): \Illuminate\Support\Collection
+    {
+        return BankAccount::query()
+            ->active()
+            ->where('outlet_id', $outletId)
+            ->ordered()
+            ->get(['id', 'bank_name', 'account_number', 'account_name', 'logo', 'outlet_id', 'is_active', 'sort_order'])
+            ->map(fn (BankAccount $bankAccount) => [
+                'id' => (int) $bankAccount->id,
+                'bank_name' => $bankAccount->bank_name,
+                'account_number' => $bankAccount->account_number,
+                'account_name' => $bankAccount->account_name,
+                'logo_url' => $bankAccount->logo_url,
+            ])
+            ->values();
     }
 }

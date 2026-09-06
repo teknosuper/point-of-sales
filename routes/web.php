@@ -107,6 +107,8 @@ Route::post('/order/status/{accessToken}/payment-link', [PublicTableOrderControl
     ->name('table-order.payment-link');
 Route::post('/order/status/{accessToken}/check-payment', [PublicTableOrderController::class, 'checkPaymentStatus'])
     ->name('table-order.check-payment');
+Route::post('/order/status/{accessToken}/change-payment-method', [PublicTableOrderController::class, 'changePaymentMethod'])
+    ->name('table-order.change-payment-method');
 Route::post('/order/status/{accessToken}/cancel', [PublicTableOrderController::class, 'cancelStatus'])
     ->name('table-order.cancel');
 Route::post('/order/status/{accessToken}/remove-unavailable', [PublicTableOrderController::class, 'removeUnavailableItems'])

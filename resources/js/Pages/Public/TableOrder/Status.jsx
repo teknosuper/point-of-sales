@@ -2,15 +2,21 @@ import { Head, Link, router, useForm, usePage } from "@inertiajs/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Swal from "sweetalert2";
 import PaymentModal from "./components/PaymentModal";
+import ChangePaymentMethodModal from "./components/ChangePaymentMethodModal";
 import {
     formatPrice,
     paymentMethodLabel,
     STATUS_LABEL as statusLabel,
 } from "./utils/tableOrderHelpers";
 
-export default function Status({ order }) {
+export default function Status({
+    order,
+    paymentMethods = [],
+    bankAccounts = [],
+}) {
     const { flash } = usePage().props;
     const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+    const [changePaymentModalOpen, setChangePaymentModalOpen] = useState(false);
     const cancelForm = useForm({});
     const removeUnavailableForm = useForm({});
     const paymentStatusForm = useForm({});
@@ -18,6 +24,7 @@ export default function Status({ order }) {
 
     const canAdjustItems = Boolean(order.can_adjust_items);
     const canCancelOrder = Boolean(order.can_cancel);
+    const canChangePaymentMethod = Boolean(order.can_change_payment_method);
     const stockAlerts = order.stock_alerts || [];
     const stockAlertSignature = useMemo(
         () =>
@@ -76,6 +83,13 @@ export default function Status({ order }) {
             : null;
     const pakasirExpiresAt =
         order.transaction?.payment_expires_at || paymentPayload?.expired_at || null;
+
+    const isBankTransfer = String(orderPaymentMethod).toLowerCase() === "bank_transfer";
+    const bankAccountInfo = order.transaction?.bank_account
+        || (bankAccounts || []).find((b) => String(b.id) === String(order.transaction?.bank_account_id))
+        || bankAccounts?.[0]
+        || null;
+
     const paymentModeCard = isSelfServiceOnlinePayment
         ? {
               badge: "Pembayaran Online",
@@ -91,7 +105,22 @@ export default function Status({ order }) {
               titleClassName: "text-emerald-950",
               descriptionClassName: "text-emerald-800",
           }
-        : {
+        : isBankTransfer
+          ? {
+                badge: "Transfer Bank",
+                title: order.status === "paid"
+                    ? "Transfer sudah diverifikasi"
+                    : "Transfer manual ke rekening",
+                description: order.status === "paid"
+                    ? "Kasir/admin sudah menerima dan memverifikasi transfer Anda."
+                    : "Transfer sesuai nominal ke rekening tujuan, lalu konfirmasikan ke kasir/admin.",
+                className:
+                    "border-sky-200 bg-[linear-gradient(135deg,_#f0f9ff_0%,_#e0f2fe_100%)]",
+                badgeClassName: "bg-sky-600 text-white",
+                titleClassName: "text-sky-950",
+                descriptionClassName: "text-sky-800",
+            }
+          : {
               badge: "Bayar di Kasir",
               title: order.status === "paid"
                   ? "Pembayaran kasir sudah selesai"
@@ -334,6 +363,14 @@ export default function Status({ order }) {
                 paymentStatusProcessing={paymentStatusForm.processing}
             />
 
+            <ChangePaymentMethodModal
+                open={changePaymentModalOpen}
+                onClose={() => setChangePaymentModalOpen(false)}
+                order={order}
+                paymentMethods={paymentMethods}
+                bankAccounts={bankAccounts}
+            />
+
             <div className="min-h-screen bg-slate-50">
                 {/* Header */}
                 <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -402,6 +439,40 @@ export default function Status({ order }) {
                                 </div>
                             </div>
 
+                            {/* Rincian rekening untuk transfer bank */}
+                            {isBankTransfer && bankAccountInfo && (
+                                <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/70 p-4">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-xs font-bold uppercase tracking-wider text-sky-800">
+                                            Rekening Tujuan Transfer
+                                        </p>
+                                        <span className="rounded-md bg-sky-200/80 px-2 py-0.5 text-xs font-bold text-sky-900">
+                                            {bankAccountInfo.bank_name}
+                                        </span>
+                                    </div>
+                                    <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-sky-100 bg-white p-3 shadow-sm">
+                                        <div className="min-w-0">
+                                            <p className="font-mono text-base font-bold text-slate-900">
+                                                {bankAccountInfo.account_number}
+                                            </p>
+                                            <p className="text-xs text-slate-500">
+                                                a.n. {bankAccountInfo.account_name}
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => copyText(bankAccountInfo.account_number, "Nomor rekening disalin")}
+                                            className="shrink-0 rounded-lg bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 transition-colors"
+                                        >
+                                            Salin
+                                        </button>
+                                    </div>
+                                    <p className="mt-2 text-xs text-slate-500 leading-relaxed">
+                                        Transfer pas sesuai total <strong className="text-slate-800">{formatPrice(order.grand_total)}</strong>, lalu konfirmasi ke kasir.
+                                    </p>
+                                </div>
+                            )}
+
                             {/* Tombol aksi */}
                             <div className="mt-4 flex flex-col gap-2">
                                 {isOnlinePaymentPending && isPakasirPayment && (
@@ -417,6 +488,19 @@ export default function Status({ order }) {
                                 {isOnlinePaymentPending && (
                                     <button type="button" onClick={handleCheckPaymentStatus} disabled={paymentStatusForm.processing} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 text-sm font-medium text-slate-700 disabled:opacity-50">
                                         {paymentStatusForm.processing ? "Mengecek..." : "Cek Status Pembayaran"}
+                                    </button>
+                                )}
+                                {canChangePaymentMethod && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setChangePaymentModalOpen(true)}
+                                        className="w-full rounded-xl border border-slate-200 bg-white py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M7 10h14l-4-4" />
+                                            <path d="M17 14H3l4 4" />
+                                        </svg>
+                                        <span>Ganti Metode Pembayaran</span>
                                     </button>
                                 )}
                                 {canAdjustItems && editOrderHref && (

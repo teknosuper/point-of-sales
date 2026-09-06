@@ -57,3 +57,14 @@ export const confirmCashPayment = async ({ total, paid, formatPrice }) => {
         reverseButtons: true,
     });
 };
+
+export const showValidationErrorModal = async ({ title, message }) => {
+    const Swal = await loadSwal();
+    return Swal.fire({
+        title: title || "Validasi Gagal",
+        html: `<div style="text-align:left;font-size:14px;color:#334155;line-height:1.6;">${message}</div>`,
+        icon: "warning",
+        confirmButtonText: "Tutup",
+        confirmButtonColor: "#2563eb",
+    });
+};
