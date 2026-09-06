@@ -92,8 +92,34 @@ class ReportCashSummary
                 ->selectRaw("COALESCE(SUM({$payoutExpression}), 0) as balance_total")
                 ->first();
 
-            $balanceTotal = (int) round($balanceRow?->balance_total ?? 0);
+            $rawBalanceTotal = (int) round($balanceRow?->balance_total ?? 0);
+        } else {
+            $rawBalanceTotal = 0;
         }
+
+        $returnTotal = 0;
+        if (Schema::hasTable('sales_returns') && $tenantOutletIds instanceof Collection && $tenantOutletIds->isNotEmpty()) {
+            $returnQuery = \App\Models\SalesReturn::query()
+                ->where('status', 'completed')
+                ->whereHas('items.transactionDetail', fn ($b) => $b->whereIn('tenant_outlet_id', $tenantOutletIds->all()));
+
+            if ($filters['end_date'] ?? null) {
+                $returnQuery->whereDate('completed_at', '<=', $filters['end_date']);
+            }
+
+            $returns = $returnQuery->with(['items.transactionDetail'])->get();
+            foreach ($returns as $sr) {
+                $items = $sr->items->filter(fn ($item) => $tenantOutletIds->contains((int) ($item->transactionDetail?->tenant_outlet_id ?? 0)));
+                foreach ($items as $item) {
+                    $detail = $item->transactionDetail;
+                    $qty = (int) ($item->qty_return ?? 0);
+                    $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
+                    $returnTotal += $customerUnitPrice * $qty;
+                }
+            }
+        }
+
+        $balanceTotal = max(0, $rawBalanceTotal - $returnTotal);
 
         $baseQuery = CashierSettlementRequest::query()
             ->whereNull('cashier_shift_id');
@@ -151,6 +177,8 @@ class ReportCashSummary
         $approvedPendingPaymentTotal = max(0, $approvedCumulativeTotal - $paidCumulativeTotal);
 
         return [
+            'raw_balance_total' => $rawBalanceTotal,
+            'return_total' => $returnTotal,
             'balance_total' => $balanceTotal,
             'approved_total' => $approvedCumulativeTotal,
             'approved_period_total' => $approvedPeriodTotal,

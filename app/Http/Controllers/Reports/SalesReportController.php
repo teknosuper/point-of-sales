@@ -251,18 +251,19 @@ class SalesReportController extends Controller
                     $recon_gross           = (int) $settlementMutationRows->sum('gross_total');
                     $recon_diff            = $recon_gross - $recon_tenant_rights - $recon_owner_markup;
 
-                    // Rekonsiliasi per-tenant: gross, hak net, markup, approved (cumulative), outstanding
+                    // Rekonsiliasi per-tenant: gross, hak net (sudah dipotong retur), markup, approved (cumulative), outstanding
                     $reconByTenant = $settlementMutationRows
-                        ->filter(fn ($r) => ($r['entry_type'] ?? '') === 'allocation')
+                        ->filter(fn ($r) => in_array($r['entry_type'] ?? '', ['allocation', 'return'], true) && filled($r['tenant_outlet_id'] ?? null))
                         ->groupBy('tenant_outlet_id')
                         ->map(function ($rows, $tenantId) use ($tenantOutletIds) {
                             $tenantGross      = (int) $rows->sum('gross_total');
                             $tenantRights     = (int) $rows->sum('mutation_total');
                             $tenantMarkup     = (int) $rows->sum('owner_markup_total');
                             $tenantDiff       = $tenantGross - $tenantRights - $tenantMarkup;
+                            $firstNamed = $rows->first(fn ($r) => filled($r['tenant_name'] ?? null) && $r['tenant_name'] !== '-');
                             return [
-                                'tenant_outlet_id'  => $tenantId,
-                                'tenant_name'       => $rows->first()['tenant_name'] ?? 'Tenant',
+                                'tenant_outlet_id'  => (int) $tenantId,
+                                'tenant_name'       => $firstNamed['tenant_name'] ?? ($rows->first()['tenant_name'] ?? 'Tenant'),
                                 'gross_total'       => $tenantGross,
                                 'tenant_rights_total' => $tenantRights,
                                 'owner_markup_total'  => $tenantMarkup,
@@ -639,17 +640,30 @@ class SalesReportController extends Controller
             $settlementMutations = $this->buildSettlementMutationReport($settlementMutationRows);
         }
 
+        $tenantReturnTotal = $this->resolveSettlementReturnTotal(collect([$tenantOutletId]), [
+            'start_date' => $filters['start_date'] ?? null,
+            'end_date' => $filters['end_date'] ?? null,
+        ]);
+        $rawRevenue = (int) $activeTenantMetricAllocations->sum('grand_total');
+        $netRevenue = max(0, $rawRevenue - $tenantReturnTotal);
+        $costTotal = (int) $activeTenantMetricAllocations->sum('cost_total');
+        $profitTotal = max(0, $netRevenue - $costTotal);
+        $managementFeeTotal = (int) round($activeTenantMetricAllocations->sum('management_fee_total'));
+        $tenantPayoutTotal = max(0, (int) round($activeTenantMetricAllocations->sum('tenant_payout_total')) - $tenantReturnTotal);
+
         $tenantSummary = [
             'allocation_count' => (int) $activeTenantMetricAllocations->count(),
             'tenant_count' => 1,
-            'revenue_total' => (int) $activeTenantMetricAllocations->sum('grand_total'),
+            'raw_revenue_total' => $rawRevenue,
+            'return_total' => $tenantReturnTotal,
+            'revenue_total' => $netRevenue,
             'settled_total' => (int) $activeTenantMetricAllocations->filter(fn ($allocation) => filled($allocation->settled_at))->sum('grand_total'),
-            'cost_total' => (int) $activeTenantMetricAllocations->sum('cost_total'),
-            'profit_total' => (int) $activeTenantMetricAllocations->sum('profit_total'),
-            'management_fee_total' => (int) round($activeTenantMetricAllocations->sum('management_fee_total')),
-            'tenant_payout_total' => (int) round($activeTenantMetricAllocations->sum('tenant_payout_total')),
-            'margin_percentage' => $summary['revenue_total'] > 0
-                ? round(($summary['profit_total'] / $summary['revenue_total']) * 100, 2)
+            'cost_total' => $costTotal,
+            'profit_total' => $profitTotal,
+            'management_fee_total' => $managementFeeTotal,
+            'tenant_payout_total' => $tenantPayoutTotal,
+            'margin_percentage' => $netRevenue > 0
+                ? round(($profitTotal / $netRevenue) * 100, 2)
                 : 0.0,
         ];
         $tenantSummary['outstanding_total'] = max(0, $tenantSummary['revenue_total'] - $tenantSummary['settled_total']);
@@ -1915,7 +1929,14 @@ class SalesReportController extends Controller
                 })
                 ->pluck('id');
 
-            $balanceTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);
+            $rawBalanceTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);
+            $returnTotal = $this->resolveSettlementReturnTotal($tenantOutletIds, [
+                'end_date' => $filters['end_date'] ?? null,
+            ]);
+            $balanceTotal = max(0, $rawBalanceTotal - $returnTotal);
+        } else {
+            $rawBalanceTotal = 0;
+            $returnTotal = 0;
         }
 
         $query = CashierSettlementRequest::query()
@@ -1949,9 +1970,44 @@ class SalesReportController extends Controller
             'approved_pending_payment_total' => max(0, $approvedTotal - $paidTotal),
             'paid_total' => $paidTotal,
             'pending_total' => $pendingTotal,
+            'raw_balance_total' => $rawBalanceTotal,
+            'return_total' => $returnTotal,
             'balance_total' => $balanceTotal,
             'outstanding_total' => max(0, $balanceTotal - $approvedTotal),
         ];
+    }
+
+    protected function resolveSettlementReturnTotal(Collection $tenantOutletIds, array $filters = []): int
+    {
+        if ($tenantOutletIds->isEmpty()) {
+            return 0;
+        }
+
+        $query = SalesReturn::query()
+            ->where('status', 'completed')
+            ->whereHas('items.transactionDetail', fn ($builder) => $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all()));
+
+        if (($filters['start_date'] ?? null) || ($filters['date_from'] ?? null)) {
+            $query->whereDate('completed_at', '>=', $filters['start_date'] ?? $filters['date_from']);
+        }
+        if (($filters['end_date'] ?? null) || ($filters['date_to'] ?? null)) {
+            $query->whereDate('completed_at', '<=', $filters['end_date'] ?? $filters['date_to']);
+        }
+
+        $returns = $query->with(['items.transactionDetail'])->get();
+
+        $totalReturn = 0;
+        foreach ($returns as $sr) {
+            $items = $sr->items->filter(fn ($item) => $tenantOutletIds->contains((int) ($item->transactionDetail?->tenant_outlet_id ?? 0)));
+            foreach ($items as $item) {
+                $detail = $item->transactionDetail;
+                $qty = (int) ($item->qty_return ?? 0);
+                $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
+                $totalReturn += $customerUnitPrice * $qty;
+            }
+        }
+
+        return $totalReturn;
     }
 
     protected function buildSettlementMutationReport(Collection $rows): array
@@ -2230,58 +2286,69 @@ class SalesReportController extends Controller
             ->whereHas('items.transactionDetail', fn ($detail) => $detail->whereIn('tenant_outlet_id', $tenantOutletIds->all()));
 
         $returnQuery = ReportTimezone::applySourceDateRange($returnQuery, 'completed_at', $rangeFilters);
-        $returnRows = $returnQuery->get()->map(function ($return) use ($tenantOutletIds) {
-            $relevantItems = $return->items
+        $tenantOutlets = Outlet::query()->whereIn('id', $tenantOutletIds->all())->get(['id', 'name'])->keyBy('id');
+        $returnRows = collect();
+        foreach ($returnQuery->get() as $return) {
+            $groupedByTenant = $return->items
                 ->filter(fn ($item) => $tenantOutletIds->contains((int) ($item->transactionDetail?->tenant_outlet_id ?? 0)))
-                ->values();
+                ->groupBy(fn ($item) => (int) ($item->transactionDetail?->tenant_outlet_id ?? 0));
 
-            $tenantMutationTotal = 0;
-            $ownerMarkupTotal = 0;
-            $grossTotal = 0;
-            $discountTotal = 0;
+            foreach ($groupedByTenant as $tenantId => $relevantItems) {
+                $tenantMutationTotal = 0;
+                $ownerMarkupTotal = 0;
+                $grossTotal = 0;
+                $discountTotal = 0;
 
-            $relevantItems->each(function ($item) use (&$tenantMutationTotal, &$ownerMarkupTotal, &$grossTotal, &$discountTotal) {
-                $detail = $item->transactionDetail;
-                $qty = (int) ($item->qty_return ?? 0);
-                $detailQty = max(1, (int) ($detail?->qty ?? 1));
-                $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
-                $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? 0);
-                $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
-                $discountUnitValue = max(0, (int) round(((int) ($detail?->discount_total ?? 0)) / $detailQty));
+                $relevantItems->each(function ($item) use (&$tenantMutationTotal, &$ownerMarkupTotal, &$grossTotal, &$discountTotal) {
+                    $detail = $item->transactionDetail;
+                    $qty = (int) ($item->qty_return ?? 0);
+                    $detailQty = max(1, (int) ($detail?->qty ?? 1));
+                    $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
+                    $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? 0);
+                    $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
+                    $discountUnitValue = max(0, (int) round(((int) ($detail?->discount_total ?? 0)) / $detailQty));
 
-                $lineTotal = $customerUnitPrice * $qty;
-                $tenantNetTotal = (int) ($detail?->tenant_net_total ?? 0) > 0
-                    ? (int) round(((int) $detail->tenant_net_total / $detailQty) * $qty)
-                    : $tenantBaseUnitPrice * $qty;
-                $ownerNetTotal = (int) ($detail?->owner_net_total ?? 0) > 0
-                    ? (int) round(((int) $detail->owner_net_total / $detailQty) * $qty)
-                    : $ownerMarkupUnitPrice * $qty;
+                    $lineTotal = $customerUnitPrice * $qty;
+                    $tenantNetTotal = (int) ($detail?->tenant_net_total ?? 0) > 0
+                        ? (int) round(((int) $detail->tenant_net_total / $detailQty) * $qty)
+                        : $tenantBaseUnitPrice * $qty;
+                    $ownerNetTotal = (int) ($detail?->owner_net_total ?? 0) > 0
+                        ? (int) round(((int) $detail->owner_net_total / $detailQty) * $qty)
+                        : $ownerMarkupUnitPrice * $qty;
 
-                $grossTotal += $lineTotal;
-                $tenantMutationTotal += $tenantNetTotal;
-                $ownerMarkupTotal += $ownerNetTotal;
-                $discountTotal += $discountUnitValue * $qty;
-            });
+                    $grossTotal += $lineTotal;
+                    $tenantMutationTotal += $tenantNetTotal;
+                    $ownerMarkupTotal += $ownerNetTotal;
+                    $discountTotal += $discountUnitValue * $qty;
+                });
 
-            return [
-                'id' => 'return-'.$return->id,
-                'entry_type' => 'return',
-                'invoice' => $return->transaction?->invoice ?? $return->code,
-                'reference' => $return->code,
-                'customer_name' => $return->transaction?->customer?->name ?? 'Pelanggan umum',
-                'cashier_name' => $return->transaction?->cashier?->name ?? ($return->cashier?->name ?? '-'),
-                'tenant_name' => '-',
-                'gross_total' => -$grossTotal,
-                'mutation_total' => -$tenantMutationTotal,
-                'owner_markup_total' => -$ownerMarkupTotal,
-                'profit_total' => 0,
-                'discount_total' => -$discountTotal,
-                'activity_at' => ReportTimezone::formatSourceDateTime($return->getRawOriginal('completed_at'), 'd M Y H:i'),
-                'activity_ts' => strtotime((string) $return->getRawOriginal('completed_at')),
-                'date_key' => ReportTimezone::sourceDateKey($return->getRawOriginal('completed_at')),
-                'status' => 'Retur',
-            ];
-        })->filter(fn (array $row) => $row['mutation_total'] !== 0 || $row['owner_markup_total'] !== 0 || $row['gross_total'] !== 0);
+                if ($tenantMutationTotal === 0 && $ownerMarkupTotal === 0 && $grossTotal === 0) {
+                    continue;
+                }
+
+                $tenantName = $tenantOutlets->get($tenantId)?->name ?? 'Tenant';
+
+                $returnRows->push([
+                    'id' => 'return-'.$return->id.'-'.$tenantId,
+                    'entry_type' => 'return',
+                    'tenant_outlet_id' => (int) $tenantId,
+                    'tenant_name' => $tenantName,
+                    'invoice' => $return->transaction?->invoice ?? $return->code,
+                    'reference' => $return->code,
+                    'customer_name' => $return->transaction?->customer?->name ?? 'Pelanggan umum',
+                    'cashier_name' => $return->transaction?->cashier?->name ?? ($return->cashier?->name ?? '-'),
+                    'gross_total' => -$grossTotal,
+                    'mutation_total' => -$tenantMutationTotal,
+                    'owner_markup_total' => -$ownerMarkupTotal,
+                    'profit_total' => 0,
+                    'discount_total' => -$discountTotal,
+                    'activity_at' => ReportTimezone::formatSourceDateTime($return->getRawOriginal('completed_at'), 'd M Y H:i'),
+                    'activity_ts' => strtotime((string) $return->getRawOriginal('completed_at')),
+                    'date_key' => ReportTimezone::sourceDateKey($return->getRawOriginal('completed_at')),
+                    'status' => 'Retur',
+                ]);
+            }
+        }
 
         return $allocationRows
             ->merge($returnRows)

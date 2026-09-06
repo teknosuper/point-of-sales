@@ -1032,19 +1032,31 @@ class CashierSettlementController extends Controller
         $returnModels = $returnQuery->get();
         $returnMapped = $returnModels->map(function (SalesReturn $sr) use ($tenantOutletIds) {
             $items = $sr->items->filter(fn ($item) => $tenantOutletIds->contains((int) ($item->transactionDetail?->tenant_outlet_id ?? 0)));
-            $totalReturn = 0;
+            $grossReturn = 0;
+            $tenantNetReturn = 0;
+            $ownerMarkupReturn = 0;
             foreach ($items as $item) {
                 $detail = $item->transactionDetail;
                 $qty = (int) ($item->qty_return ?? 0);
+                $detailQty = max(1, (int) ($detail?->qty ?? 1));
                 $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
-                $totalReturn += $customerUnitPrice * $qty;
+                $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? 0);
+                $grossReturn += $customerUnitPrice * $qty;
+                $tenantNetReturn += (int) ($detail?->tenant_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->tenant_net_total / $detailQty) * $qty)
+                    : $tenantBaseUnitPrice * $qty;
+                $ownerMarkupReturn += (int) ($detail?->owner_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->owner_net_total / $detailQty) * $qty)
+                    : max(0, $customerUnitPrice - $tenantBaseUnitPrice) * $qty;
             }
 
             return [
                 'id' => $sr->id,
                 'code' => $sr->code,
                 'invoice' => $sr->transaction?->invoice,
-                'total_amount' => $totalReturn,
+                'total_amount' => $grossReturn,
+                'tenant_net_amount' => $tenantNetReturn,
+                'owner_markup_amount' => $ownerMarkupReturn,
                 'items_count' => $items->count(),
                 'completed_at' => $sr->completed_at?->format('d M Y H:i'),
             ];
@@ -1060,6 +1072,8 @@ class CashierSettlementController extends Controller
         );
 
         $returnTotal = $returnMapped->sum('total_amount');
+        $tenantReturnTotal = $returnMapped->sum('tenant_net_amount');
+        $ownerMarkupReturnTotal = $returnMapped->sum('owner_markup_amount');
 
         $approvedTotal = (int) CashierSettlementRequest::query()
             ->whereIn('outlet_id', $settlementOutletIds->all())
@@ -1103,7 +1117,7 @@ class CashierSettlementController extends Controller
             })
             ->sum('requested_amount');
 
-        $availableBalance = max(0, $claimableTotal - $returnTotal - $approvedTotal - $pendingTotal);
+        $availableBalance = max(0, $claimableTotal - $tenantReturnTotal - $approvedTotal - $pendingTotal);
 
         // 2. Rincian per-periode (bulan) dari alokasi
         $monthlyAllocations = (clone $allocationQuery)
@@ -1225,10 +1239,11 @@ class CashierSettlementController extends Controller
         );
 
         // 7. Reconciliation — selisih antara kalkulasi manual dan data
-        $expectedBalance = max(0, $claimableTotal - $returnTotal);
+        $expectedBalance = max(0, $claimableTotal - $tenantReturnTotal);
         $reconciliation = [
             'claimable_total' => $claimableTotal,
             'return_total' => $returnTotal,
+            'tenant_return_total' => $tenantReturnTotal,
             'expected_balance' => $expectedBalance,
             'actual_approved' => $approvedTotal,
             'actual_pending' => $pendingTotal,
@@ -1278,6 +1293,7 @@ class CashierSettlementController extends Controller
             ->get();
 
         $dailyReturns = collect();
+        $dailyTenantReturns = collect();
         $filteredReturns = $hasDateFilter
             ? $returnMapped->filter(function ($sr) use ($dateFilters) {
                 $completedAt = $sr['completed_at'] ?? null;
@@ -1305,10 +1321,13 @@ class CashierSettlementController extends Controller
                 continue;
             }
             $dayReturnTotal = (int) ($sr['total_amount'] ?? 0);
+            $dayTenantReturnTotal = (int) ($sr['tenant_net_amount'] ?? 0);
             $dailyReturns[$dayKey] = ($dailyReturns[$dayKey] ?? 0) + $dayReturnTotal;
+            $dailyTenantReturns[$dayKey] = ($dailyTenantReturns[$dayKey] ?? 0) + $dayTenantReturnTotal;
         }
 
         $allReturns = $dailyReturns->sortKeys();
+        $allTenantReturns = $dailyTenantReturns->sortKeys();
 
         // Gabungkan data harian dan hitung running balance + audit selisih
         // Timeline = dailyAllocations (sorted asc by delivered_at date)
@@ -1320,10 +1339,11 @@ class CashierSettlementController extends Controller
         $returnCount = $returnKeys->count();
         $cumWithdrawn = 0;
         $cumReturnsTotal = 0;
+        $cumTenantReturnsTotal = 0;
 
         $dailyRows = $dailyAllocations->values()->map(function ($allocRow) use (
             &$settlementIdx, $settlementCount, $allSettlements, &$cumWithdrawn,
-            &$returnIdx, $returnCount, $returnKeys, $allReturns, &$cumReturnsTotal,
+            &$returnIdx, $returnCount, $returnKeys, $allReturns, $allTenantReturns, &$cumReturnsTotal, &$cumTenantReturnsTotal,
             $dailyNetTotals
         ) {
             $dayKey = $allocRow->day_key;
@@ -1338,6 +1358,7 @@ class CashierSettlementController extends Controller
             // Hitung retur yang completed_at <= day_key (kumulatif)
             while ($returnIdx < $returnCount && $returnKeys[$returnIdx] <= $dayKey) {
                 $cumReturnsTotal += (int) $allReturns->get($returnKeys[$returnIdx], 0);
+                $cumTenantReturnsTotal += (int) $allTenantReturns->get($returnKeys[$returnIdx], 0);
                 $returnIdx++;
             }
 
@@ -1349,6 +1370,7 @@ class CashierSettlementController extends Controller
                 'tenant_net' => $tenantNet,
                 'cum_withdrawn' => $cumWithdrawn,
                 'cum_returns' => $cumReturnsTotal,
+                'cum_tenant_returns' => $cumTenantReturnsTotal,
             ];
         });
 
@@ -1356,9 +1378,10 @@ class CashierSettlementController extends Controller
         $cumEarnings = 0;
         $prevCumWithdrawn = 0;
         $prevCumReturns = 0;
+        $prevCumTenantReturns = 0;
         $prevRunningBalance = 0;
         $dailyRows = $dailyRows->map(function ($row) use (
-            &$cumEarnings, &$prevCumWithdrawn, &$prevCumReturns, &$prevRunningBalance
+            &$cumEarnings, &$prevCumWithdrawn, &$prevCumReturns, &$prevCumTenantReturns, &$prevRunningBalance
         ) {
             $prevBalance = $prevRunningBalance;
 
@@ -1366,9 +1389,10 @@ class CashierSettlementController extends Controller
 
             $dailyWithdraw = $row['cum_withdrawn'] - $prevCumWithdrawn;
             $dailyReturn = $row['cum_returns'] - $prevCumReturns;
+            $dailyTenantReturn = $row['cum_tenant_returns'] - $prevCumTenantReturns;
 
             // Saldo Tersedia sebelum dipotong withdraw hari ini
-            $balanceBeforeWithdraw = $prevBalance + $row['tenant_net'] - $dailyReturn;
+            $balanceBeforeWithdraw = $prevBalance + $row['tenant_net'] - $dailyTenantReturn;
 
             // Saldo Akhir setelah dipotong withdraw hari ini
             $runningBalance = $balanceBeforeWithdraw - $dailyWithdraw;
@@ -1376,6 +1400,7 @@ class CashierSettlementController extends Controller
             $prevRunningBalance = $runningBalance;
             $prevCumWithdrawn = $row['cum_withdrawn'];
             $prevCumReturns = $row['cum_returns'];
+            $prevCumTenantReturns = $row['cum_tenant_returns'];
 
             // Selisih = withdraw kumulatif melebihi penghasilan kumulatif
             $selisih = max(0, $row['cum_withdrawn'] - $cumEarnings);
@@ -1395,6 +1420,7 @@ class CashierSettlementController extends Controller
                 'prev_balance' => $prevBalance,
                 'daily_withdraw' => $dailyWithdraw,
                 'daily_return' => $dailyReturn,
+                'daily_tenant_return' => $dailyTenantReturn,
                 'balance_before_withdraw' => $balanceBeforeWithdraw,
                 'cum_earnings' => $cumEarnings,
                 'running_balance' => $runningBalance,
@@ -1434,6 +1460,8 @@ class CashierSettlementController extends Controller
                 'pending_total' => $pendingTotal,
                 'rejected_total' => $rejectedTotal,
                 'return_total' => $returnTotal,
+                'tenant_return_total' => $tenantReturnTotal,
+                'owner_markup_return_total' => $ownerMarkupReturnTotal,
                 'available_balance' => $availableBalance,
                 'total_excess_withdrawal' => (int) ($dailyRows->first()['selisih'] ?? 0),
             ],

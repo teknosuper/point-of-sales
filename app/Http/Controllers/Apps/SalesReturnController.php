@@ -45,7 +45,10 @@ class SalesReturnController extends Controller
     public function index(Request $request): Response
     {
         $this->ensureSalesReturnTablesExist();
-        $outlet = $this->outletResolver->resolve($request, $request->user());
+        $user = $request->user();
+        $outlet = $this->outletResolver->resolve($request, $user);
+        $isTenantWorkspace = (string) ($outlet?->outlet_type ?? '') === 'tenant' || ($user?->isKitchenWorkspace() ?? false);
+        $tenantOutletId = $isTenantWorkspace && $outlet ? (int) $outlet->id : null;
 
         $filters = [
             'code' => $request->input('code'),
@@ -56,8 +59,17 @@ class SalesReturnController extends Controller
         ];
 
         $salesReturns = SalesReturn::query()
-            ->with(['transaction:id,invoice,payment_method,payment_status', 'customer:id,name', 'cashier:id,name'])
-            ->when($outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
+            ->with([
+                'transaction:id,invoice,payment_method,payment_status',
+                'customer:id,name',
+                'cashier:id,name',
+                'items.product:id,title,barcode,sku',
+                'items.transactionDetail.tenantOutlet:id,name,code',
+            ])
+            ->when($isTenantWorkspace && $outlet, function (Builder $query) use ($outlet) {
+                $query->whereHas('items.transactionDetail', fn (Builder $q) => $q->where('tenant_outlet_id', $outlet->id));
+            })
+            ->when(! $isTenantWorkspace && $outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
             ->when($filters['code'], fn (Builder $query, $code) => $query->where('code', 'like', '%'.$code.'%'))
             ->when($filters['invoice'], function (Builder $query, $invoice) {
                 $query->whereHas('transaction', fn (Builder $builder) => $builder->where('invoice', 'like', '%'.$invoice.'%'));
@@ -70,17 +82,25 @@ class SalesReturnController extends Controller
         $salesReturns = $this->constrainSalesReturnsVisibleToUser($salesReturns, $request)
             ->latest()
             ->paginate(10)
-            ->withQueryString();
+            ->withQueryString()
+            ->through(fn (SalesReturn $salesReturn) => $this->transformSalesReturn($salesReturn, $tenantOutletId));
 
         return Inertia::render('Dashboard/SalesReturns/Index', [
             'salesReturns' => $salesReturns,
             'filters' => $filters,
+            'canViewMarkup' => (bool) ($request->user()?->can('view-markup-details') ?? false),
+            'isTenantWorkspace' => $isTenantWorkspace,
         ]);
     }
 
     public function create(Request $request, Transaction $transaction): Response|RedirectResponse
     {
         $this->ensureSalesReturnTablesExist();
+
+        $user = $request->user();
+        $outlet = $this->outletResolver->resolve($request, $user);
+        $isTenantWorkspace = (string) ($outlet?->outlet_type ?? '') === 'tenant' || ($user?->isKitchenWorkspace() ?? false);
+        $tenantOutletId = $isTenantWorkspace && $outlet ? (int) $outlet->id : null;
 
         $transaction = $this->resolveAccessibleTransaction($request, $transaction->id);
 
@@ -89,7 +109,7 @@ class SalesReturnController extends Controller
         }
 
         return Inertia::render('Dashboard/SalesReturns/Create', [
-            'transaction' => $this->transformTransactionForEditor($transaction),
+            'transaction' => $this->transformTransactionForEditor($transaction, null, $tenantOutletId),
         ]);
     }
 
@@ -136,11 +156,16 @@ class SalesReturnController extends Controller
     {
         $this->ensureSalesReturnTablesExist();
 
+        $user = $request->user();
+        $outlet = $this->outletResolver->resolve($request, $user);
+        $isTenantWorkspace = (string) ($outlet?->outlet_type ?? '') === 'tenant' || ($user?->isKitchenWorkspace() ?? false);
+        $tenantOutletId = $isTenantWorkspace && $outlet ? (int) $outlet->id : null;
+
         $salesReturn = $this->resolveAccessibleSalesReturn($request, $salesReturn->id);
 
         return Inertia::render('Dashboard/SalesReturns/Show', [
-            'salesReturn' => $this->transformSalesReturn($salesReturn),
-            'transaction' => $this->transformTransactionForEditor($salesReturn->transaction, $salesReturn),
+            'salesReturn' => $this->transformSalesReturn($salesReturn, $tenantOutletId),
+            'transaction' => $this->transformTransactionForEditor($salesReturn->transaction, $salesReturn, $tenantOutletId),
         ]);
     }
 
@@ -414,7 +439,9 @@ class SalesReturnController extends Controller
 
     private function resolveAccessibleTransaction(Request $request, int $transactionId): Transaction
     {
-        $outlet = $this->outletResolver->resolve($request, $request->user());
+        $user = $request->user();
+        $outlet = $this->outletResolver->resolve($request, $user);
+        $isTenantWorkspace = (string) ($outlet?->outlet_type ?? '') === 'tenant' || ($user?->isKitchenWorkspace() ?? false);
 
         return Transaction::query()
             ->with([
@@ -424,12 +451,22 @@ class SalesReturnController extends Controller
                 'details.product:id,title,barcode,sku,buy_price',
                 'details.salesReturnItems.salesReturn:id,status',
             ])
-            ->when($outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
-            ->when(! $request->user()->isSuperAdmin(), function (Builder $query) use ($request) {
-                $query->where(function (Builder $builder) use ($request) {
+            ->when($isTenantWorkspace && $outlet, function (Builder $query) use ($outlet) {
+                $query->whereHas('details', fn (Builder $q) => $q->where('tenant_outlet_id', $outlet->id));
+            })
+            ->when(! $isTenantWorkspace && $outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
+            ->when(! (
+                $user->isSuperAdmin()
+                || $user->hasAnyRole(['admin-owner-outlet', 'admin-sistem', 'outlet-owner', 'tenant-owner', 'admin-laporan'])
+                || $user->can('sales-returns-access')
+                || $user->can('sales-returns-create')
+                || $user->can('reports-access')
+                || $user->can('cashier-settlements-access')
+            ), function (Builder $query) use ($user) {
+                $query->where(function (Builder $builder) use ($user) {
                     $builder
-                        ->where('cashier_id', $request->user()->id)
-                        ->orWhereHas('cashierShift.operators', fn (Builder $operatorQuery) => $operatorQuery->where('users.id', $request->user()->id));
+                        ->where('cashier_id', $user->id)
+                        ->orWhereHas('cashierShift.operators', fn (Builder $operatorQuery) => $operatorQuery->where('users.id', $user->id));
                 });
             })
             ->findOrFail($transactionId);
@@ -437,7 +474,9 @@ class SalesReturnController extends Controller
 
     private function resolveAccessibleSalesReturn(Request $request, int $salesReturnId): SalesReturn
     {
-        $outlet = $this->outletResolver->resolve($request, $request->user());
+        $user = $request->user();
+        $outlet = $this->outletResolver->resolve($request, $user);
+        $isTenantWorkspace = (string) ($outlet?->outlet_type ?? '') === 'tenant' || ($user?->isKitchenWorkspace() ?? false);
 
         return SalesReturn::query()
             ->with([
@@ -449,32 +488,51 @@ class SalesReturnController extends Controller
                 'transaction.details.product:id,title,barcode,sku,buy_price',
                 'transaction.details.salesReturnItems.salesReturn:id,status',
                 'items.product:id,title,barcode,sku,buy_price',
-                'items.transactionDetail:id,transaction_id,product_id,qty,price',
+                'items.transactionDetail:id,transaction_id,product_id,qty,price,tenant_outlet_id,customer_base_unit_price,unit_price',
             ])
-            ->when($outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
+            ->when($isTenantWorkspace && $outlet, function (Builder $query) use ($outlet) {
+                $query->whereHas('items.transactionDetail', fn (Builder $q) => $q->where('tenant_outlet_id', $outlet->id));
+            })
+            ->when(! $isTenantWorkspace && $outlet, fn (Builder $query) => $query->where('outlet_id', $outlet->id))
             ->when(true, fn (Builder $query) => $this->constrainSalesReturnsVisibleToUser($query, $request))
             ->findOrFail($salesReturnId);
     }
 
     private function constrainSalesReturnsVisibleToUser(Builder $query, Request $request): Builder
     {
-        if ($request->user()->isSuperAdmin()) {
+        $user = $request->user();
+
+        if (
+            $user->isSuperAdmin()
+            || $user->hasAnyRole(['admin-owner-outlet', 'admin-sistem', 'outlet-owner', 'tenant-owner', 'admin-laporan'])
+            || $user->can('reports-access')
+            || $user->can('cashier-settlements-access')
+        ) {
             return $query;
         }
 
-        return $query->whereHas('transaction', function (Builder $builder) use ($request) {
-            $builder->where(function (Builder $nested) use ($request) {
+        return $query->whereHas('transaction', function (Builder $builder) use ($user) {
+            $builder->where(function (Builder $nested) use ($user) {
                 $nested
-                    ->where('cashier_id', $request->user()->id)
-                    ->orWhereHas('cashierShift.operators', fn (Builder $operatorQuery) => $operatorQuery->where('users.id', $request->user()->id));
+                    ->where('cashier_id', $user->id)
+                    ->orWhereHas('cashierShift.operators', fn (Builder $operatorQuery) => $operatorQuery->where('users.id', $user->id));
             });
         });
     }
 
-    private function transformTransactionForEditor(Transaction $transaction, ?SalesReturn $salesReturn = null): array
+    private function transformTransactionForEditor(Transaction $transaction, ?SalesReturn $salesReturn = null, ?int $tenantOutletId = null): array
     {
         $draftItems = collect($salesReturn?->items ?? [])
             ->keyBy('transaction_detail_id');
+
+        $details = $transaction->details;
+        if ($tenantOutletId) {
+            $details = $details->filter(fn (TransactionDetail $detail) => (int) ($detail->tenant_outlet_id ?? 0) === $tenantOutletId)->values();
+        }
+
+        $grandTotal = $tenantOutletId
+            ? (int) $details->sum(fn ($detail) => ((int) ($detail->customer_base_unit_price ?? $detail->unit_price ?? 0)) * (int) $detail->qty)
+            : (int) $transaction->grand_total;
 
         return [
             'id' => $transaction->id,
@@ -490,7 +548,7 @@ class SalesReturnController extends Controller
                 'id' => $transaction->customer->id,
                 'name' => $transaction->customer->name,
             ] : null,
-            'grand_total' => (int) $transaction->grand_total,
+            'grand_total' => $grandTotal,
             'payment_method' => $transaction->payment_method,
             'payment_status' => $transaction->payment_status,
             'receivable' => $transaction->receivable ? [
@@ -500,7 +558,7 @@ class SalesReturnController extends Controller
                 'status' => $transaction->receivable->status,
                 'remaining' => (int) $transaction->receivable->remaining,
             ] : null,
-            'details' => $transaction->details->map(function (TransactionDetail $detail) use ($draftItems) {
+            'details' => $details->map(function (TransactionDetail $detail) use ($draftItems) {
                 $completedReturnedQty = (int) $detail->salesReturnItems
                     ->filter(fn (SalesReturnItem $item) => $item->salesReturn?->status === 'completed')
                     ->sum('qty_return');
@@ -533,16 +591,60 @@ class SalesReturnController extends Controller
         ];
     }
 
-    private function transformSalesReturn(SalesReturn $salesReturn): array
+    private function transformSalesReturn(SalesReturn $salesReturn, ?int $tenantOutletId = null): array
     {
+        $items = $salesReturn->items;
+        if ($tenantOutletId) {
+            $items = $items->filter(fn (SalesReturnItem $item) => (int) ($item->transactionDetail?->tenant_outlet_id ?? 0) === $tenantOutletId)->values();
+        }
+
+        $grossReturnTotal = (int) $items->sum(function (SalesReturnItem $item) {
+            $qty = (int) ($item->qty_return ?? 0);
+            $unitPrice = (int) ($item->transactionDetail?->customer_base_unit_price ?? $item->unit_price ?? 0);
+            return $unitPrice * $qty;
+        });
+
+        $tenantRightsReturnTotal = (int) $items->sum(function (SalesReturnItem $item) {
+            $detail = $item->transactionDetail;
+            $qty = (int) ($item->qty_return ?? 0);
+            $detailQty = max(1, (int) ($detail?->qty ?? 1));
+            $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? 0);
+            return (int) ($detail?->tenant_net_total ?? 0) > 0
+                ? (int) round(((int) $detail->tenant_net_total / $detailQty) * $qty)
+                : $tenantBaseUnitPrice * $qty;
+        });
+
+        $ownerMarkupReturnTotal = (int) $items->sum(function (SalesReturnItem $item) {
+            $detail = $item->transactionDetail;
+            $qty = (int) ($item->qty_return ?? 0);
+            $detailQty = max(1, (int) ($detail?->qty ?? 1));
+            $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
+            return (int) ($detail?->owner_net_total ?? 0) > 0
+                ? (int) round(((int) $detail->owner_net_total / $detailQty) * $qty)
+                : $ownerMarkupUnitPrice * $qty;
+        });
+
+        $tenantTotalReturn = $tenantOutletId ? $tenantRightsReturnTotal : $grossReturnTotal;
+
+        $refundAmount = $tenantOutletId
+            ? ($salesReturn->return_type === 'refund_cash' ? $tenantTotalReturn : 0)
+            : (int) $salesReturn->refund_amount;
+
+        $creditedAmount = $tenantOutletId
+            ? ($salesReturn->return_type === 'store_credit' ? $tenantTotalReturn : 0)
+            : (int) $salesReturn->credited_amount;
+
         return [
             'id' => $salesReturn->id,
             'code' => $salesReturn->code,
             'status' => $salesReturn->status,
             'return_type' => $salesReturn->return_type,
-            'refund_amount' => (int) $salesReturn->refund_amount,
-            'credited_amount' => (int) $salesReturn->credited_amount,
-            'total_return_amount' => (int) $salesReturn->total_return_amount,
+            'refund_amount' => $refundAmount,
+            'credited_amount' => $creditedAmount,
+            'total_return_amount' => $tenantTotalReturn,
+            'gross_return_total' => $grossReturnTotal,
+            'tenant_rights_return_total' => $tenantRightsReturnTotal,
+            'owner_markup_return_total' => $ownerMarkupReturnTotal,
             'notes' => $salesReturn->notes,
             'created_at' => optional($salesReturn->created_at)?->toISOString(),
             'completed_at' => optional($salesReturn->completed_at)?->toISOString(),
@@ -558,7 +660,22 @@ class SalesReturnController extends Controller
                 'id' => $salesReturn->transaction?->id,
                 'invoice' => $salesReturn->transaction?->invoice,
             ],
-            'items' => $salesReturn->items->map(function (SalesReturnItem $item) {
+            'items' => $items->map(function (SalesReturnItem $item) {
+                $detail = $item->transactionDetail;
+                $qty = (int) ($item->qty_return ?? 0);
+                $detailQty = max(1, (int) ($detail?->qty ?? 1));
+                $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? $item->unit_price ?? 0);
+                $tenantBaseUnitPrice = (int) ($detail?->tenant_base_unit_price ?? 0);
+                $ownerMarkupUnitPrice = (int) ($detail?->owner_markup_unit_price ?? 0);
+
+                $grossSubtotal = $customerUnitPrice * $qty;
+                $tenantNetSubtotal = (int) ($detail?->tenant_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->tenant_net_total / $detailQty) * $qty)
+                    : $tenantBaseUnitPrice * $qty;
+                $ownerMarkupSubtotal = (int) ($detail?->owner_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->owner_net_total / $detailQty) * $qty)
+                    : $ownerMarkupUnitPrice * $qty;
+
                 return [
                     'id' => $item->id,
                     'transaction_detail_id' => $item->transaction_detail_id,
@@ -570,9 +687,16 @@ class SalesReturnController extends Controller
                     ] : null,
                     'qty_sold' => (int) $item->qty_sold,
                     'qty_returned_before' => (int) $item->qty_returned_before,
-                    'qty_return' => (int) $item->qty_return,
-                    'unit_price' => (int) $item->unit_price,
-                    'subtotal' => (int) $item->subtotal,
+                    'qty_return' => $qty,
+                    'unit_price' => $customerUnitPrice,
+                    'customer_unit_price' => $customerUnitPrice,
+                    'tenant_base_unit_price' => $tenantBaseUnitPrice,
+                    'owner_markup_unit_price' => $ownerMarkupUnitPrice,
+                    'subtotal' => $grossSubtotal,
+                    'gross_subtotal' => $grossSubtotal,
+                    'tenant_net_subtotal' => $tenantNetSubtotal,
+                    'owner_markup_subtotal' => $ownerMarkupSubtotal,
+                    'tenant_name' => $detail?->tenantOutlet?->name ?? '-',
                     'return_reason' => $item->return_reason,
                     'restock_to_inventory' => (bool) $item->restock_to_inventory,
                 ];
