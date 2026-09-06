@@ -140,6 +140,7 @@ export default function Index({
     wallet = null,
     walletTransactions = {},
     tenantAuditReport = null,
+    auditDateFilters = {},
     ownerOverview = null,
     canViewMarkup = false,
 }) {
@@ -149,6 +150,8 @@ export default function Index({
     const isTenantRequestMode = Boolean(canCreateRequest);
     const [showHelpModal, setShowHelpModal] = useState(false);
     const [showWalletFilterModal, setShowWalletFilterModal] = useState(false);
+    const [auditDateFrom, setAuditDateFrom] = useState(auditDateFilters?.date_from ?? '');
+    const [auditDateTo, setAuditDateTo] = useState(auditDateFilters?.date_to ?? '');
 
     useEffect(() => {
         if (flash?.success) toast.success(flash.success);
@@ -2571,13 +2574,68 @@ export default function Index({
 
                  {isTenantRequestMode && activeTab === "audit" && tenantAuditReport ? (
                      <div className="space-y-6">
-                         {/* Summary Cards */}
-                         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                             <SummaryCard title="Total Saldo Masuk" value={formatCurrency(tenantAuditReport.summary?.claimable_total ?? 0)} description="Hak tenant dari transaksi yang sudah delivered" icon={<IconReceipt2 size={20} />} tone="emerald" />
-                             <SummaryCard title="Sudah Di-Withdraw" value={formatCurrency(tenantAuditReport.summary?.approved_total ?? 0)} description="Penarikan yang sudah disetujui dan dibayar" icon={<IconCheck size={20} />} tone="blue" />
-                             <SummaryCard title="Pending Approval" value={formatCurrency(tenantAuditReport.summary?.pending_total ?? 0)} description="Penarikan yang masih menunggu proses" icon={<IconClockHour4 size={20} />} tone="amber" />
-                             <SummaryCard title="Saldo Tersedia" value={formatCurrency(tenantAuditReport.summary?.available_balance ?? 0)} description="Sisa saldo yang bisa diajukan" icon={<IconCashBanknote size={20} />} tone="slate" />
-                         </div>
+                          {/* Summary Cards */}
+                          {(auditDateFrom || auditDateTo) && (
+                              <div className="rounded-2xl border border-primary-200 bg-primary-50 px-4 py-2.5 text-sm text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/20 dark:text-primary-300">
+                                  Filter aktif: {auditDateFrom ? `dari ${auditDateFrom}` : 'dari awal'} — {auditDateTo ? `sampai ${auditDateTo}` : 'sampai sekarang'}
+                              </div>
+                          )}
+                          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                              <SummaryCard title="Total Saldo Masuk" value={formatCurrency(tenantAuditReport.summary?.claimable_total ?? 0)} description="Hak tenant dari transaksi yang sudah delivered" icon={<IconReceipt2 size={20} />} tone="emerald" />
+                              <SummaryCard title="Sudah Di-Withdraw" value={formatCurrency(tenantAuditReport.summary?.approved_total ?? 0)} description="Penarikan yang sudah disetujui dan dibayar" icon={<IconCheck size={20} />} tone="blue" />
+                              <SummaryCard title="Pending Approval" value={formatCurrency(tenantAuditReport.summary?.pending_total ?? 0)} description="Penarikan yang masih menunggu proses" icon={<IconClockHour4 size={20} />} tone="amber" />
+                              <SummaryCard title="Saldo Tersedia" value={formatCurrency(tenantAuditReport.summary?.available_balance ?? 0)} description="Sisa saldo yang bisa diajukan" icon={<IconCashBanknote size={20} />} tone="slate" />
+                          </div>
+
+                          {/* Date Filter */}
+                          <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                              <div>
+                                  <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Dari Tanggal</label>
+                                  <input
+                                      type="date"
+                                      value={auditDateFrom}
+                                      onChange={(e) => setAuditDateFrom(e.target.value)}
+                                      className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                  />
+                              </div>
+                              <div>
+                                  <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">Sampai Tanggal</label>
+                                  <input
+                                      type="date"
+                                      value={auditDateTo}
+                                      onChange={(e) => setAuditDateTo(e.target.value)}
+                                      className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm dark:border-slate-700 dark:bg-slate-800"
+                                  />
+                              </div>
+                              <button
+                                  type="button"
+                                  onClick={() => {
+                                      router.get(route('cashier-settlements.index', {
+                                          tab: 'audit',
+                                          audit_date_from: auditDateFrom,
+                                          audit_date_to: auditDateTo,
+                                      }), { preserveScroll: true, preserveState: true });
+                                  }}
+                                  className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-primary-700"
+                              >
+                                  <IconSearch size={16} />
+                                  Terapkan Filter
+                              </button>
+                              {(auditDateFrom || auditDateTo) && (
+                                  <button
+                                      type="button"
+                                      onClick={() => {
+                                          setAuditDateFrom('');
+                                          setAuditDateTo('');
+                                          router.get(route('cashier-settlements.index', { tab: 'audit' }), { preserveScroll: true, preserveState: true });
+                                      }}
+                                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                                  >
+                                      <IconX size={16} />
+                                      Reset
+                                  </button>
+                              )}
+                          </div>
 
                          {/* Reconciliation Status */}
                          {tenantAuditReport.reconciliation ? (
@@ -2717,7 +2775,7 @@ export default function Index({
                           </div>
 
                           {/* Daily Breakdown */}
-                          {tenantAuditReport.daily?.length > 0 ? (
+                          {(tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).length > 0 ? (
                               <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                                   <h3 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">Audit Harian: Withdraw vs Saldo</h3>
                                   <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
@@ -2750,13 +2808,13 @@ export default function Index({
                                                   <th className="px-3 py-3 text-right">Retur</th>
                                                   <th className="px-3 py-3 text-right">Saldo Kumulatif</th>
                                                   <th className="px-3 py-3 text-right">Withdraw Kumulatif</th>
-                                                  <th className="px-3 py-3 text-right">Saldo Seharusnya</th>
+                                                  <th className="px-3 py-3 text-right">Saldo Sebelum Withdraw</th>
                                                   <th className="px-3 py-3 text-right">Selisih</th>
                                                   <th className="px-3 py-3">Keterangan</th>
                                               </tr>
                                           </thead>
                                           <tbody>
-                                              {tenantAuditReport.daily.map((day) => {
+                                              {(tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).map((day) => {
                                                   const isDanger = day.audit_severity === 'danger';
                                                   const isWarning = day.audit_severity === 'warning';
                                                   const rowBg = isDanger
@@ -2780,9 +2838,9 @@ export default function Index({
                                                           <td className="px-3 py-3 text-right text-rose-600">{day.return_amount > 0 ? formatCurrency(day.return_amount) : '-'}</td>
                                                           <td className="px-3 py-3 text-right text-slate-600 dark:text-slate-400">{formatCurrency(day.cum_earnings - day.cum_returns)}</td>
                                                           <td className={`px-3 py-3 text-right ${isDanger ? 'font-bold text-rose-700' : 'text-blue-600'}`}>{formatCurrency(day.cum_withdrawals)}</td>
-                                                          <td className="px-3 py-3 text-right font-semibold text-slate-900 dark:text-white">{formatCurrency(day.correct_balance)}</td>
-                                                          <td className={`px-3 py-3 text-right font-bold ${day.excess_withdrawal > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                                              {day.excess_withdrawal > 0 ? `+${formatCurrency(day.excess_withdrawal)}` : formatCurrency(0)}
+                                                          <td className="px-3 py-3 text-right font-semibold text-slate-900 dark:text-white">{formatCurrency(day.balance_before_withdraw)}</td>
+                                                          <td className={`px-3 py-3 text-right font-bold ${day.selisih > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                                              {day.selisih > 0 ? `+${formatCurrency(day.selisih)}` : formatCurrency(0)}
                                                           </td>
                                                           <td className="px-3 py-3">
                                                               {day.audit_note ? (
@@ -2800,10 +2858,10 @@ export default function Index({
                                           </tbody>
                                           <tfoot>
                                               <tr className="border-t-2 border-slate-300 font-bold dark:border-slate-600">
-                                                  <td className="px-3 py-3 text-slate-900 dark:text-white">Total</td>
-                                                  <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency(tenantAuditReport.daily.reduce((s, d) => s + d.tenant_net, 0))}</td>
-                                                  <td className="px-3 py-3 text-right text-blue-600">{formatCurrency(tenantAuditReport.daily.reduce((s, d) => s + d.withdrawn, 0))}</td>
-                                                  <td className="px-3 py-3 text-right text-rose-600">{formatCurrency(tenantAuditReport.daily.reduce((s, d) => s + d.return_amount, 0))}</td>
+                                                  <td className="px-3 py-3 text-slate-900 dark:text-white">Total Halaman Ini</td>
+                                                  <td className="px-3 py-3 text-right text-emerald-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + d.tenant_net, 0))}</td>
+                                                  <td className="px-3 py-3 text-right text-blue-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + d.withdrawn, 0))}</td>
+                                                  <td className="px-3 py-3 text-right text-rose-600">{formatCurrency((tenantAuditReport.daily?.data ?? tenantAuditReport.daily ?? []).reduce((s, d) => s + d.return_amount, 0))}</td>
                                                   <td className="px-3 py-3 text-right" colSpan={2}></td>
                                                   <td className="px-3 py-3 text-right text-slate-900 dark:text-white">-</td>
                                                   <td className="px-3 py-3 text-right font-bold text-rose-600">
@@ -2814,6 +2872,11 @@ export default function Index({
                                           </tfoot>
                                       </table>
                                   </div>
+                                  {tenantAuditReport.daily?.links && (
+                                      <div className="mt-4">
+                                          <Pagination links={tenantAuditReport.daily.links} />
+                                      </div>
+                                  )}
                               </div>
                           ) : null}
 
@@ -2867,8 +2930,8 @@ export default function Index({
 
                          {/* Recent Settlement Requests */}
                          <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                             <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Riwayat Penarikan (Terbaru)</h3>
-                             {tenantAuditReport.recent_settlements?.length > 0 ? (
+                             <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Riwayat Penarikan</h3>
+                             {(tenantAuditReport.recent_settlements?.data ?? tenantAuditReport.recent_settlements ?? []).length > 0 ? (
                                  <div className="overflow-x-auto">
                                      <table className="w-full text-sm">
                                          <thead>
@@ -2882,7 +2945,7 @@ export default function Index({
                                              </tr>
                                          </thead>
                                          <tbody>
-                                             {tenantAuditReport.recent_settlements.map((s) => (
+                                             {(tenantAuditReport.recent_settlements?.data ?? tenantAuditReport.recent_settlements ?? []).map((s) => (
                                                  <tr key={s.id} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
                                                      <td className="px-3 py-3 font-medium text-slate-900 dark:text-white">{s.request_number}</td>
                                                      <td className="px-3 py-3 text-slate-600 dark:text-slate-400">{s.business_date ?? '-'}</td>
@@ -2904,10 +2967,15 @@ export default function Index({
                              ) : (
                                  <p className="text-sm text-slate-500 dark:text-slate-400">Belum ada riwayat penarikan.</p>
                              )}
+                             {tenantAuditReport.recent_settlements?.links && (
+                                 <div className="mt-4">
+                                     <Pagination links={tenantAuditReport.recent_settlements.links} />
+                                 </div>
+                             )}
                          </div>
 
                          {/* Recent Returns */}
-                         {tenantAuditReport.recent_returns?.length > 0 ? (
+                         {(tenantAuditReport.recent_returns?.data ?? tenantAuditReport.recent_returns ?? []).length > 0 ? (
                              <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                                  <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Retur yang Mempengaruhi Saldo</h3>
                                  <div className="overflow-x-auto">
@@ -2921,7 +2989,7 @@ export default function Index({
                                              </tr>
                                          </thead>
                                          <tbody>
-                                             {tenantAuditReport.recent_returns.map((r) => (
+                                             {(tenantAuditReport.recent_returns?.data ?? tenantAuditReport.recent_returns ?? []).map((r) => (
                                                  <tr key={r.id} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
                                                      <td className="px-3 py-3 font-medium text-slate-900 dark:text-white">{r.code}</td>
                                                      <td className="px-3 py-3 text-slate-600 dark:text-slate-400">{r.invoice ?? '-'}</td>
@@ -2932,6 +3000,11 @@ export default function Index({
                                          </tbody>
                                      </table>
                                  </div>
+                                 {tenantAuditReport.recent_returns?.links && (
+                                     <div className="mt-4">
+                                         <Pagination links={tenantAuditReport.recent_returns.links} />
+                                     </div>
+                                 )}
                              </div>
                          ) : null}
                      </div>

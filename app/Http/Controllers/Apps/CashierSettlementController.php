@@ -64,6 +64,11 @@ class CashierSettlementController extends Controller
             'date_to' => (string) $request->input('req_date_to', ''),
         ];
 
+        $auditDateFilters = [
+            'date_from' => (string) $request->input('audit_date_from', ''),
+            'date_to' => (string) $request->input('audit_date_to', ''),
+        ];
+
         $canApprove = $this->canApprove($user);
 
         $tenantSettlementOutletIds = $isTenantRequestWorkspace
@@ -154,7 +159,7 @@ class CashierSettlementController extends Controller
             ? $this->buildTenantWalletTransactions($user, $outlet, $walletFilters)
             : null;
         $tenantAuditReport = $isTenantRequestWorkspace
-            ? $this->buildTenantAuditReport($user, $outlet)
+            ? $this->buildTenantAuditReport($user, $outlet, $auditDateFilters)
             : null;
         $ownerOverview = ! $isTenantRequestWorkspace
             ? $this->buildOwnerSettlementOverview($outlet, $visibleOutletIds)
@@ -201,6 +206,7 @@ class CashierSettlementController extends Controller
             'wallet' => $wallet,
             'walletTransactions' => $walletTransactions,
             'tenantAuditReport' => $tenantAuditReport,
+            'auditDateFilters' => $auditDateFilters,
             'ownerOverview' => $ownerOverview,
             'canViewMarkup' => $canViewMarkup,
         ]);
@@ -983,10 +989,19 @@ class CashierSettlementController extends Controller
         ];
     }
 
-    private function buildTenantAuditReport(User $user, Outlet $activeOutlet): array
+    private function buildTenantAuditReport(User $user, Outlet $activeOutlet, array $dateFilters = []): array
     {
         $allocationQuery = $this->buildTenantWalletAllocationQuery($user, $activeOutlet);
         $settlementOutletIds = $this->resolveTenantSettlementOutletIds($user, $activeOutlet);
+
+        // Apply date filters if provided
+        $hasDateFilter = ($dateFilters['date_from'] ?? '') !== '' || ($dateFilters['date_to'] ?? '') !== '';
+        if ($hasDateFilter) {
+            ReportTimezone::applySourceDateRange($allocationQuery, 'delivered_at', [
+                'start_date' => $dateFilters['date_from'] ?? '',
+                'end_date' => $dateFilters['date_to'] ?? '',
+            ]);
+        }
 
         // 1. Ringkasan utama
         $allocationIds = (clone $allocationQuery)->pluck('id');
@@ -997,18 +1012,42 @@ class CashierSettlementController extends Controller
             ->whereIn('outlet_id', $settlementOutletIds->all())
             ->whereNull('cashier_shift_id')
             ->where('status', CashierSettlementRequest::STATUS_APPROVED)
+            ->when($hasDateFilter, function (Builder $builder) use ($dateFilters) {
+                if (($dateFilters['date_from'] ?? '') !== '') {
+                    $builder->whereDate('paid_at', '>=', $dateFilters['date_from']);
+                }
+                if (($dateFilters['date_to'] ?? '') !== '') {
+                    $builder->whereDate('paid_at', '<=', $dateFilters['date_to']);
+                }
+            })
             ->sum('approved_amount');
 
         $pendingTotal = (int) CashierSettlementRequest::query()
             ->whereIn('outlet_id', $settlementOutletIds->all())
             ->whereNull('cashier_shift_id')
             ->where('status', CashierSettlementRequest::STATUS_PENDING)
+            ->when($hasDateFilter, function (Builder $builder) use ($dateFilters) {
+                if (($dateFilters['date_from'] ?? '') !== '') {
+                    $builder->whereDate('created_at', '>=', $dateFilters['date_from']);
+                }
+                if (($dateFilters['date_to'] ?? '') !== '') {
+                    $builder->whereDate('created_at', '<=', $dateFilters['date_to']);
+                }
+            })
             ->sum('requested_amount');
 
         $rejectedTotal = (int) CashierSettlementRequest::query()
             ->whereIn('outlet_id', $settlementOutletIds->all())
             ->whereNull('cashier_shift_id')
             ->where('status', CashierSettlementRequest::STATUS_REJECTED)
+            ->when($hasDateFilter, function (Builder $builder) use ($dateFilters) {
+                if (($dateFilters['date_from'] ?? '') !== '') {
+                    $builder->whereDate('created_at', '>=', $dateFilters['date_from']);
+                }
+                if (($dateFilters['date_to'] ?? '') !== '') {
+                    $builder->whereDate('created_at', '<=', $dateFilters['date_to']);
+                }
+            })
             ->sum('requested_amount');
 
         $availableBalance = max(0, $claimableTotal - $approvedTotal - $pendingTotal);
@@ -1073,15 +1112,26 @@ class CashierSettlementController extends Controller
             ];
         })->values();
 
-        // 5. Detail penarikan (10 terakhir)
-        $recentSettlements = CashierSettlementRequest::query()
+        // 5. Detail penarikan (paginated)
+        $settlementPage = max(1, (int) request()->integer('settlement_page', 1));
+        $settlementPerPage = 10;
+        $settlementQuery = CashierSettlementRequest::query()
             ->with(['approvedBy:id,name'])
             ->whereIn('outlet_id', $settlementOutletIds->all())
             ->whereNull('cashier_shift_id')
-            ->latest('created_at')
-            ->limit(10)
-            ->get()
-            ->map(fn (CashierSettlementRequest $s) => [
+            ->latest('created_at');
+        if ($hasDateFilter) {
+            if (($dateFilters['date_from'] ?? '') !== '') {
+                $settlementQuery->whereDate('created_at', '>=', $dateFilters['date_from']);
+            }
+            if (($dateFilters['date_to'] ?? '') !== '') {
+                $settlementQuery->whereDate('created_at', '<=', $dateFilters['date_to']);
+            }
+        }
+        $settlementTotal = $settlementQuery->count();
+        $settlementModels = $settlementQuery->skip(($settlementPage - 1) * $settlementPerPage)->limit($settlementPerPage)->get();
+        $recentSettlements = new LengthAwarePaginator(
+            $settlementModels->map(fn (CashierSettlementRequest $s) => [
                 'id' => $s->id,
                 'request_number' => $s->request_number,
                 'business_date' => $s->business_date?->format('d M Y'),
@@ -1093,39 +1143,60 @@ class CashierSettlementController extends Controller
                 'approved_by' => $s->approvedBy?->name,
                 'rejection_reason' => $s->rejection_reason,
                 'paid_at' => $s->paid_at?->format('d M Y H:i'),
-            ]);
+            ])->values(),
+            $settlementTotal,
+            $settlementPerPage,
+            $settlementPage,
+            ['path' => request()->url(), 'pageName' => 'settlement_page', 'query' => request()->query()]
+        );
 
-        // 6. Data retur yang mempengaruhi saldo
-        $returns = SalesReturn::query()
+        // 6. Data retur yang mempengaruhi saldo (paginated)
+        $returnPage = max(1, (int) request()->integer('return_page', 1));
+        $returnPerPage = 10;
+        $returnQuery = SalesReturn::query()
             ->where('status', 'completed')
             ->whereHas('items.transactionDetail', fn (Builder $builder) => $builder->whereIn('tenant_outlet_id', $this->resolveKitchenTenantOutletIds($user, $activeOutlet->id)->all()))
             ->latest('completed_at')
-            ->limit(10)
-            ->with(['transaction:id,invoice'])
-            ->get()
-            ->map(function (SalesReturn $sr) {
-                $items = $sr->items->filter(fn ($item) => (int) ($item->transactionDetail?->tenant_outlet_id ?? 0) > 0);
-                $totalReturn = 0;
-                foreach ($items as $item) {
-                    $detail = $item->transactionDetail;
-                    $qty = (int) ($item->qty_return ?? 0);
-                    $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
-                    $totalReturn += $customerUnitPrice * $qty;
-                }
+            ->with(['transaction:id,invoice']);
+        if ($hasDateFilter) {
+            if (($dateFilters['date_from'] ?? '') !== '') {
+                $returnQuery->whereDate('completed_at', '>=', $dateFilters['date_from']);
+            }
+            if (($dateFilters['date_to'] ?? '') !== '') {
+                $returnQuery->whereDate('completed_at', '<=', $dateFilters['date_to']);
+            }
+        }
+        $returnModels = $returnQuery->get();
+        $returnMapped = $returnModels->map(function (SalesReturn $sr) {
+            $items = $sr->items->filter(fn ($item) => (int) ($item->transactionDetail?->tenant_outlet_id ?? 0) > 0);
+            $totalReturn = 0;
+            foreach ($items as $item) {
+                $detail = $item->transactionDetail;
+                $qty = (int) ($item->qty_return ?? 0);
+                $customerUnitPrice = (int) ($detail?->customer_base_unit_price ?? $detail?->unit_price ?? 0);
+                $totalReturn += $customerUnitPrice * $qty;
+            }
 
-                return [
-                    'id' => $sr->id,
-                    'code' => $sr->code,
-                    'invoice' => $sr->transaction?->invoice,
-                    'total_amount' => $totalReturn,
-                    'items_count' => $items->count(),
-                    'completed_at' => $sr->completed_at?->format('d M Y H:i'),
-                ];
-            })
-            ->filter(fn ($row) => $row['total_amount'] > 0)
-            ->values();
+            return [
+                'id' => $sr->id,
+                'code' => $sr->code,
+                'invoice' => $sr->transaction?->invoice,
+                'total_amount' => $totalReturn,
+                'items_count' => $items->count(),
+                'completed_at' => $sr->completed_at?->format('d M Y H:i'),
+            ];
+        })->filter(fn ($row) => $row['total_amount'] > 0)->values();
+        $returnFilteredTotal = $returnMapped->count();
+        $returnPaginated = $returnMapped->slice(($returnPage - 1) * $returnPerPage, $returnPerPage)->values();
+        $recentReturns = new LengthAwarePaginator(
+            $returnPaginated,
+            $returnFilteredTotal,
+            $returnPerPage,
+            $returnPage,
+            ['path' => request()->url(), 'pageName' => 'return_page', 'query' => request()->query()]
+        );
 
-        $returnTotal = $returns->sum('total_amount');
+        $returnTotal = $returnMapped->sum('total_amount');
 
         // 7. Reconciliation — selisih antara kalkulasi manual dan data
         $expectedBalance = max(0, $claimableTotal - $returnTotal);
@@ -1145,7 +1216,7 @@ class CashierSettlementController extends Controller
             ->selectRaw('DATE(delivered_at) as day_key, COALESCE(SUM(subtotal), 0) as gross_sales, COUNT(DISTINCT transaction_id) as transactions_count')
             ->groupBy('day_key')
             ->orderByDesc('day_key')
-            ->limit(30)
+            ->when(! $hasDateFilter, fn (Builder $builder) => $builder->limit(30))
             ->get();
 
         $allocationIdsByDay = (clone $allocationQuery)
@@ -1166,12 +1237,37 @@ class CashierSettlementController extends Controller
             ->where('status', CashierSettlementRequest::STATUS_APPROVED)
             ->selectRaw('DATE(paid_at) as day_key, COALESCE(SUM(approved_amount), 0) as withdrawn_total')
             ->whereNotNull('paid_at')
+            ->when($hasDateFilter, function (Builder $builder) use ($dateFilters) {
+                if (($dateFilters['date_from'] ?? '') !== '') {
+                    $builder->whereDate('paid_at', '>=', $dateFilters['date_from']);
+                }
+                if (($dateFilters['date_to'] ?? '') !== '') {
+                    $builder->whereDate('paid_at', '<=', $dateFilters['date_to']);
+                }
+            })
             ->groupBy('day_key')
             ->get()
             ->keyBy('day_key');
 
         $dailyReturns = collect();
-        foreach ($returns as $sr) {
+        $filteredReturns = $hasDateFilter
+            ? $returnMapped->filter(function ($sr) use ($dateFilters) {
+                $completedAt = $sr['completed_at'] ?? null;
+                if (! $completedAt) {
+                    return false;
+                }
+                $date = Carbon::parse($completedAt)->format('Y-m-d');
+                if (($dateFilters['date_from'] ?? '') !== '' && $date < $dateFilters['date_from']) {
+                    return false;
+                }
+                if (($dateFilters['date_to'] ?? '') !== '' && $date > $dateFilters['date_to']) {
+                    return false;
+                }
+
+                return true;
+            })
+            : $returnMapped;
+        foreach ($filteredReturns as $sr) {
             $completedAt = $sr['completed_at'] ?? null;
             if (! $completedAt) {
                 continue;
@@ -1213,31 +1309,38 @@ class CashierSettlementController extends Controller
         $cumWithdrawals = 0;
         $cumReturns = 0;
         $dailyRows = $dailyAsc->map(function ($row) use (&$cumEarnings, &$cumWithdrawals, &$cumReturns) {
-            $cumEarnings += $row['tenant_net'];
-            $cumWithdrawals += $row['withdrawn'];
-            $cumReturns += $row['return_amount'];
-            $correctBalance = max(0, $cumEarnings - $cumReturns - $cumWithdrawals);
-            $excessWithdrawal = max(0, $cumWithdrawals - max(0, $cumEarnings - $cumReturns));
+            // Saldo tersedia SEBELUM withdraw hari ini
+            $balanceBeforeWithdraw = max(0, $cumEarnings - $cumReturns - $cumWithdrawals);
 
-            // Audit note: kapan dan berapa kali withdraw melebihi saldo
+            $cumEarnings += $row['tenant_net'];
+            $cumReturns += $row['return_amount'];
+            $cumWithdrawals += $row['withdrawn'];
+
+            // Saldo sesudah withdraw hari ini
+            $correctBalance = max(0, $cumEarnings - $cumReturns - $cumWithdrawals);
+
+            // Selisih = withdraw hari ini - saldo tersedia saat itu
+            $selisih = max(0, $row['withdrawn'] - $balanceBeforeWithdraw);
+
+            // Audit note
             $auditNote = null;
-            $auditSeverity = 'ok'; // ok | warning | danger
-            if ($row['withdrawn'] > 0 && $cumWithdrawals > max(0, $cumEarnings - $cumReturns)) {
+            $auditSeverity = 'ok';
+            if ($row['withdrawn'] > 0 && $selisih > 0) {
                 $auditSeverity = 'danger';
-                $auditNote = "Withdraw {$row['withdrawn']} melebihi saldo kumulatif. Selisih: {$excessWithdrawal}. Kemungkinan markup owner terhitung ke hak tenant.";
-            } elseif ($row['withdrawn'] > 0 && $row['withdrawn'] > ($cumEarnings - $cumReturns - $row['withdrawn'])) {
-                // Withdrawal hari ini lebih besar dari saldo tersedia saat itu
+                $auditNote = "Withdraw {$row['withdrawn']} melebihi saldo tersedia ({$balanceBeforeWithdraw}). Selisih: {$selisih}. Kemungkinan markup owner terhitung ke hak tenant.";
+            } elseif ($row['withdrawn'] > 0 && $row['withdrawn'] > $balanceBeforeWithdraw * 0.8 && $balanceBeforeWithdraw > 0) {
                 $auditSeverity = 'warning';
-                $auditNote = 'Withdraw hari ini cukup besar dibanding saldo tersedia.';
+                $auditNote = 'Withdraw cukup besar dibanding saldo tersedia saat itu.';
             }
 
             return [
                 ...$row,
+                'balance_before_withdraw' => $balanceBeforeWithdraw,
                 'cum_earnings' => $cumEarnings,
                 'cum_withdrawals' => $cumWithdrawals,
                 'cum_returns' => $cumReturns,
                 'correct_balance' => $correctBalance,
-                'excess_withdrawal' => $excessWithdrawal,
+                'selisih' => $selisih,
                 'audit_note' => $auditNote,
                 'audit_severity' => $auditSeverity,
             ];
@@ -1245,6 +1348,19 @@ class CashierSettlementController extends Controller
 
         // Balik ke descending untuk tampilan
         $dailyRows = $dailyRows->sortByDesc('day_key')->values();
+
+        // Paginate daily rows
+        $dailyPage = max(1, (int) request()->integer('daily_page', 1));
+        $dailyPerPage = 15;
+        $dailyTotal = $dailyRows->count();
+        $dailyPaginated = $dailyRows->slice(($dailyPage - 1) * $dailyPerPage, $dailyPerPage)->values();
+        $dailyPaginator = new LengthAwarePaginator(
+            $dailyPaginated,
+            $dailyTotal,
+            $dailyPerPage,
+            $dailyPage,
+            ['path' => request()->url(), 'pageName' => 'daily_page', 'query' => request()->query()]
+        );
 
         return [
             'summary' => [
@@ -1254,12 +1370,12 @@ class CashierSettlementController extends Controller
                 'rejected_total' => $rejectedTotal,
                 'return_total' => $returnTotal,
                 'available_balance' => $availableBalance,
-                'total_excess_withdrawal' => (int) $dailyRows->max('excess_withdrawal'),
+                'total_excess_withdrawal' => (int) $dailyRows->max('selisih'),
             ],
             'months' => $months,
-            'daily' => $dailyRows,
+            'daily' => $dailyPaginator,
             'recent_settlements' => $recentSettlements,
-            'recent_returns' => $returns,
+            'recent_returns' => $recentReturns,
             'reconciliation' => $reconciliation,
         ];
     }
