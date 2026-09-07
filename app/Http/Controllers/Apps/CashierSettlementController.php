@@ -970,13 +970,14 @@ class CashierSettlementController extends Controller
 
         $tenantOutletIds = $this->resolveKitchenTenantOutletIds($user, $activeOutlet->id);
         $returnTotal = $this->resolveTenantReturnTotal($tenantOutletIds);
+        $tenantReturnTotal = $this->resolveTenantNetReturnTotal($tenantOutletIds);
 
         // Hak tenant yang masuk saldo = net dari item-level (tenant_base_unit_price),
         // bukan gross subtotal yang masih termasuk markup owner, dikurangi retur.
         $tenantNetTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);
         $claimableTotal = max(0, $tenantNetTotal);
-        $receivableTotal = max(0, $claimableTotal - $returnTotal - $approvedTotal);
-        $availableBalance = max(0, $claimableTotal - $returnTotal - $approvedTotal - $pendingTotal);
+        $receivableTotal = max(0, $claimableTotal - $tenantReturnTotal - $approvedTotal);
+        $availableBalance = max(0, $claimableTotal - $tenantReturnTotal - $approvedTotal - $pendingTotal);
 
         return [
             'tenant_sales_total' => $claimableTotal,
@@ -986,6 +987,7 @@ class CashierSettlementController extends Controller
             'pricing_discount_total' => $pricingDiscountTotal,
             'owner_markup_total' => $ownerMarkupTotal,
             'return_total' => $returnTotal,
+            'tenant_return_total' => $tenantReturnTotal,
             'approved_total' => $approvedTotal,
             'pending_total' => $pendingTotal,
             'receivable_total' => $receivableTotal,
@@ -2167,6 +2169,41 @@ class CashierSettlementController extends Controller
         }
 
         return $totalReturn;
+    }
+
+    private function resolveTenantNetReturnTotal(\Illuminate\Support\Collection $tenantOutletIds, array $dateFilters = []): int
+    {
+        if ($tenantOutletIds->isEmpty()) {
+            return 0;
+        }
+
+        $query = SalesReturn::query()
+            ->where('status', 'completed')
+            ->whereHas('items.transactionDetail', fn (Builder $builder) => $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all()));
+
+        if (($dateFilters['date_from'] ?? '') !== '') {
+            $query->whereDate('completed_at', '>=', $dateFilters['date_from']);
+        }
+        if (($dateFilters['date_to'] ?? '') !== '') {
+            $query->whereDate('completed_at', '<=', $dateFilters['date_to']);
+        }
+
+        $returns = $query->with(['items.transactionDetail'])->get();
+
+        $tenantNetReturn = 0;
+        foreach ($returns as $sr) {
+            $items = $sr->items->filter(fn ($item) => $tenantOutletIds->contains((int) ($item->transactionDetail?->tenant_outlet_id ?? 0)));
+            foreach ($items as $item) {
+                $detail = $item->transactionDetail;
+                $qty = (int) ($item->qty_return ?? 0);
+                $detailQty = max(1, (int) ($detail?->qty ?? 1));
+                $tenantNetReturn += (int) ($detail?->tenant_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->tenant_net_total / $detailQty) * $qty)
+                    : (int) ($detail?->tenant_base_unit_price ?? 0) * $qty;
+            }
+        }
+
+        return $tenantNetReturn;
     }
 
     private function buildTenantWalletReturnRows(User $user, Outlet $activeOutlet, array $filters): \Illuminate\Support\Collection
