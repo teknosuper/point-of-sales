@@ -644,12 +644,17 @@ class SalesReportController extends Controller
             'start_date' => $filters['start_date'] ?? null,
             'end_date' => $filters['end_date'] ?? null,
         ]);
+        $tenantNetReturnTotal = $this->resolveSettlementTenantNetReturnTotal(collect([$tenantOutletId]), [
+            'start_date' => $filters['start_date'] ?? null,
+            'end_date' => $filters['end_date'] ?? null,
+        ]);
         $rawRevenue = (int) $activeTenantMetricAllocations->sum('grand_total');
-        $netRevenue = max(0, $rawRevenue - $tenantReturnTotal);
+        $tenantNetRevenue = TenantWalletMetrics::sumTenantNetValueForAllocationIds($activeTenantMetricAllocations->pluck('id'));
+        $netRevenue = max(0, $tenantNetRevenue - $tenantNetReturnTotal);
         $costTotal = (int) $activeTenantMetricAllocations->sum('cost_total');
         $profitTotal = max(0, $netRevenue - $costTotal);
         $managementFeeTotal = (int) round($activeTenantMetricAllocations->sum('management_fee_total'));
-        $tenantPayoutTotal = max(0, (int) round($activeTenantMetricAllocations->sum('tenant_payout_total')) - $tenantReturnTotal);
+        $tenantPayoutTotal = max(0, (int) round($activeTenantMetricAllocations->sum('tenant_payout_total')) - $tenantNetReturnTotal);
 
         $tenantSummary = [
             'allocation_count' => (int) $activeTenantMetricAllocations->count(),
@@ -657,7 +662,7 @@ class SalesReportController extends Controller
             'raw_revenue_total' => $rawRevenue,
             'return_total' => $tenantReturnTotal,
             'revenue_total' => $netRevenue,
-            'settled_total' => (int) $activeTenantMetricAllocations->filter(fn ($allocation) => filled($allocation->settled_at))->sum('grand_total'),
+            'settled_total' => TenantWalletMetrics::sumTenantNetValueForAllocationIds($activeTenantMetricAllocations->filter(fn ($allocation) => filled($allocation->settled_at))->pluck('id')),
             'cost_total' => $costTotal,
             'profit_total' => $profitTotal,
             'management_fee_total' => $managementFeeTotal,
@@ -2008,6 +2013,41 @@ class SalesReportController extends Controller
         }
 
         return $totalReturn;
+    }
+
+    protected function resolveSettlementTenantNetReturnTotal(Collection $tenantOutletIds, array $filters = []): int
+    {
+        if ($tenantOutletIds->isEmpty()) {
+            return 0;
+        }
+
+        $query = SalesReturn::query()
+            ->where('status', 'completed')
+            ->whereHas('items.transactionDetail', fn ($builder) => $builder->whereIn('tenant_outlet_id', $tenantOutletIds->all()));
+
+        if (($filters['start_date'] ?? null) || ($filters['date_from'] ?? null)) {
+            $query->whereDate('completed_at', '>=', $filters['start_date'] ?? $filters['date_from']);
+        }
+        if (($filters['end_date'] ?? null) || ($filters['date_to'] ?? null)) {
+            $query->whereDate('completed_at', '<=', $filters['end_date'] ?? $filters['date_to']);
+        }
+
+        $returns = $query->with(['items.transactionDetail'])->get();
+
+        $tenantNetReturn = 0;
+        foreach ($returns as $sr) {
+            $items = $sr->items->filter(fn ($item) => $tenantOutletIds->contains((int) ($item->transactionDetail?->tenant_outlet_id ?? 0)));
+            foreach ($items as $item) {
+                $detail = $item->transactionDetail;
+                $qty = (int) ($item->qty_return ?? 0);
+                $detailQty = max(1, (int) ($detail?->qty ?? 1));
+                $tenantNetReturn += (int) ($detail?->tenant_net_total ?? 0) > 0
+                    ? (int) round(((int) $detail->tenant_net_total / $detailQty) * $qty)
+                    : (int) ($detail?->tenant_base_unit_price ?? 0) * $qty;
+            }
+        }
+
+        return $tenantNetReturn;
     }
 
     protected function buildSettlementMutationReport(Collection $rows): array

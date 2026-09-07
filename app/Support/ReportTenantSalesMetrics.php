@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Support\TenantWalletMetrics;
 use Illuminate\Support\Collection;
 
 class ReportTenantSalesMetrics
@@ -9,7 +10,8 @@ class ReportTenantSalesMetrics
     public static function summary(Collection $allocations): array
     {
         $ordersCount = (int) $allocations->count();
-        $revenueTotal = (int) $allocations->sum('grand_total');
+        $allocationIds = $allocations->pluck('id');
+        $revenueTotal = TenantWalletMetrics::sumTenantNetValueForAllocationIds($allocationIds);
         $discountTotal = (int) $allocations->sum('total_discount_total');
         $itemsSold = (int) $allocations->sum('total_items');
         $profitTotal = (int) $allocations->sum('profit_total');
