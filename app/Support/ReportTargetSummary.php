@@ -7,7 +7,7 @@ use Carbon\Carbon;
 
 class ReportTargetSummary
 {
-    public static function build(array $summary, ?int $outletId, array $filters, array $dailyMetrics = []): array
+    public static function build(array $summary, ?int $outletId, array $filters, array $dailyMetrics = [], bool $withRows = true): array
     {
         $salesTarget = Setting::getInt('monthly_sales_target', 0, $outletId);
         $profitTarget = Setting::getInt('monthly_profit_target', 0, $outletId);
@@ -17,6 +17,9 @@ class ReportTargetSummary
         $profitActual = (int) ($summary['target_profit_total'] ?? ($summary['profit_total'] ?? 0));
         $itemsActual = (int) ($summary['items_sold'] ?? 0);
         $bounds = self::resolveBounds($filters);
+        $breakdown = $bounds !== null
+            ? self::buildBreakdownRows($dailyMetrics, $salesTarget, $profitTarget, $dailyItemTarget, $bounds)
+            : [];
 
         return array_merge(
             [
@@ -30,15 +33,110 @@ class ReportTargetSummary
             self::buildMetricSummary('profit', $profitTarget, $profitActual, $bounds),
             self::buildItemMetricSummary($dailyItemTarget, $itemsActual, $bounds),
             [
-                'breakdown' => self::buildBreakdownRows(
-                    $dailyMetrics,
-                    $salesTarget,
-                    $profitTarget,
-                    $dailyItemTarget,
-                    $bounds
-                ),
+                'breakdown' => $withRows ? $breakdown : [],
+                'breakdown_summary' => self::summarizeBreakdownRows($breakdown),
             ]
         );
+    }
+
+    public static function summarizeBreakdownRows(array $rows): array
+    {
+        $fullyMet = 0;
+        $unmet = 0;
+        $salesMet = 0;
+        $profitMet = 0;
+        $itemsMet = 0;
+
+        foreach ($rows as $row) {
+            $sales = $row['sales_met'] ?? null;
+            $profit = $row['profit_met'] ?? null;
+            $items = $row['items_met'] ?? null;
+
+            if ($sales === true) {
+                $salesMet++;
+            }
+            if ($profit === true) {
+                $profitMet++;
+            }
+            if ($items === true) {
+                $itemsMet++;
+            }
+            if ($sales === true && $profit === true && $items === true) {
+                $fullyMet++;
+            }
+            if ($sales === false || $profit === false || $items === false) {
+                $unmet++;
+            }
+        }
+
+        return [
+            'total_days' => count($rows),
+            'fully_met_days' => $fullyMet,
+            'unmet_days' => $unmet,
+            'sales_met_days' => $salesMet,
+            'profit_met_days' => $profitMet,
+            'items_met_days' => $itemsMet,
+        ];
+    }
+
+    /**
+     * Breakdown per tanggal untuk konsumsi ajax: filter q + status, lalu paginasi.
+     * $dailyMetrics format sama seperti build(): list ['date'=>, 'revenue_total'=>, ...].
+     */
+    public static function paginateBreakdown(
+        array $dailyMetrics,
+        array $filters,
+        ?int $outletId,
+        int $page = 1,
+        int $perPage = 31,
+        ?string $q = null,
+        string $status = 'all'
+    ): array {
+        $salesTarget = Setting::getInt('monthly_sales_target', 0, $outletId);
+        $profitTarget = Setting::getInt('monthly_profit_target', 0, $outletId);
+        $dailyItemTarget = Setting::getInt('daily_global_item_target', 0, $outletId);
+        $bounds = self::resolveBounds($filters);
+        $rows = $bounds !== null
+            ? self::buildBreakdownRows($dailyMetrics, $salesTarget, $profitTarget, $dailyItemTarget, $bounds)
+            : [];
+
+        $needle = mb_strtolower(trim((string) ($q ?? '')));
+        $filtered = array_values(array_filter($rows, function ($row) use ($needle, $status) {
+            if ($needle !== '' && ! str_contains(mb_strtolower(($row['date'] ?? '').' '.($row['label'] ?? '')), $needle)) {
+                return false;
+            }
+
+            if ($status === 'tercapai') {
+                return ($row['sales_met'] ?? null) === true
+                    && ($row['profit_met'] ?? null) === true
+                    && ($row['items_met'] ?? null) === true;
+            }
+
+            if ($status === 'tertinggal') {
+                return ($row['sales_met'] ?? null) === false
+                    || ($row['profit_met'] ?? null) === false
+                    || ($row['items_met'] ?? null) === false;
+            }
+
+            return true;
+        }));
+
+        $total = count($filtered);
+        $perPage = max(1, min(100, $perPage));
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $page), $lastPage);
+
+        return [
+            'data' => array_slice($filtered, ($page - 1) * $perPage, $perPage),
+            'meta' => [
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'last_page' => $lastPage,
+                'period_label' => self::resolvePeriodLabel($filters),
+                'summary' => self::summarizeBreakdownRows($filtered),
+            ],
+        ];
     }
 
     protected static function buildMetricSummary(string $prefix, int $monthlyTarget, int $actual, ?array $bounds): array

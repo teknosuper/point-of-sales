@@ -6,6 +6,7 @@ use App\Models\Outlet;
 use App\Models\Transaction;
 use App\Models\TransactionTenantAllocation;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Permission;
@@ -567,6 +568,92 @@ class SalesReportTest extends TestCase
         $this->assertStringContainsString('14400', $content);
         $this->assertStringNotContainsString('TA-EXPORT-2', $content);
         $this->assertStringNotContainsString('TRX-EXPORT-2', $content);
+    }
+
+    public function test_settlement_tab_without_date_filter_does_not_error(): void
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('reports-access');
+
+        $outlet = $this->createOutlet('OUTLET-SETTLE-OK', 'Outlet Settle', true);
+        $user->outlets()->attach([
+            $outlet->id => ['is_primary' => true],
+        ]);
+
+        // Regresi: closure where() tanpa import Builder melempar TypeError
+        // saat summary settlement dibangun (tab=settlement, tanpa tanggal).
+        $response = $this
+            ->withSession(['active_outlet_id' => $outlet->id])
+            ->actingAs($user)
+            ->get(route('reports.sales.index', ['tab' => 'settlement']));
+
+        $response->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->component('Dashboard/Reports/Sales')
+            ->where('activeTab', 'settlement')
+        );
+    }
+
+    public function test_target_breakdown_endpoint_paginates_searches_and_matches_revenue(): void
+    {
+        $user = User::factory()->create();
+        $user->givePermissionTo('reports-access');
+
+        $outlet = $this->createOutlet('OUTLET-TB', 'Outlet Target', true);
+        $user->outlets()->attach([$outlet->id => ['is_primary' => true]]);
+
+        $makeTransaction = function (string $invoice, int $grandTotal, string $at) use ($user, $outlet) {
+            $transaction = Transaction::create([
+                'cashier_id' => $user->id,
+                'outlet_id' => $outlet->id,
+                'invoice' => $invoice,
+                'cash' => $grandTotal,
+                'change' => 0,
+                'discount' => 0,
+                'grand_total' => $grandTotal,
+                'payment_method' => 'cash',
+                'payment_status' => 'paid',
+            ]);
+            // created_at tidak fillable: set langsung via query builder.
+            DB::table('transactions')->where('id', $transaction->id)->update([
+                'created_at' => $at,
+                'updated_at' => $at,
+            ]);
+
+            return $transaction;
+        };
+
+        $makeTransaction('TRX-TB-1', 50000, '2026-10-05 12:00:00');
+        $makeTransaction('TRX-TB-2', 30000, '2026-10-07 12:00:00');
+
+        $base = ['start_date' => '2026-10-01', 'end_date' => '2026-10-31'];
+        $call = fn (array $params) => $this
+            ->withSession(['active_outlet_id' => $outlet->id])
+            ->actingAs($user)
+            ->getJson(route('reports.sales.target-breakdown', $params));
+
+        $full = $call([...$base, 'per_page' => 100]);
+        $full->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('meta.total', 31)
+            ->assertJsonPath('meta.last_page', 1);
+        $rows = $full->json('data');
+        $this->assertCount(31, $rows);
+        $this->assertSame(80000, (int) collect($rows)->sum('sales_actual'));
+
+        $pageTwo = $call([...$base, 'per_page' => 10, 'page' => 2]);
+        $pageTwo->assertOk()
+            ->assertJsonPath('meta.current_page', 2)
+            ->assertJsonPath('meta.last_page', 4);
+        $this->assertCount(10, $pageTwo->json('data'));
+
+        $search = $call([...$base, 'q' => '2026-10-0', 'per_page' => 100]);
+        $search->assertOk()->assertJsonPath('meta.total', 9);
+
+        $met = $call([...$base, 'status' => 'tercapai', 'per_page' => 100]);
+        $met->assertOk()->assertJsonPath('meta.total', 0);
+
+        $wide = $call(['start_date' => '2020-01-01', 'end_date' => '2026-10-09']);
+        $wide->assertStatus(422);
     }
 
     private function createOutlet(string $code, string $name, bool $isDefault = false): Outlet

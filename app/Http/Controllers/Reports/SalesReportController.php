@@ -16,6 +16,7 @@ use App\Models\TransactionTenantAllocation;
 use App\Models\TransactionTenantAllocationItem;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use App\Services\OutletResolver;
 use App\Services\SalesAnalyticsService;
 use App\Services\TransactionReturnImpactService;
@@ -25,6 +26,7 @@ use App\Support\ReportTargetSummary;
 use App\Support\ReportTenantSalesMetrics;
 use App\Support\ReportTimezone;
 use App\Support\TenantWalletMetrics;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -61,6 +63,14 @@ class SalesReportController extends Controller
             'outlet_id' => $isTenantOutlet ? null : $outletId,
         ];
 
+        // Kunjungan pertama (parameter tanggal tidak ada sama sekali): default 30 hari terakhir.
+        // Jika parameter ada walau kosong (mis. preset "Seluruh Data"), hormati sebagai tanpa batas.
+        if (! $request->query->has('start_date') && ! $request->query->has('end_date')) {
+            $today = now(ReportTimezone::timezone());
+            $filters['end_date'] = $today->format('Y-m-d');
+            $filters['start_date'] = $today->copy()->subDays(29)->format('Y-m-d');
+        }
+
         if ($isTenantOutlet) {
             return $this->renderTenantSalesReport($request, $filters, $outletId, $activeTab);
         }
@@ -95,12 +105,10 @@ class SalesReportController extends Controller
         }
 
         $aggregateQuery = $this->applyFilters(Transaction::query(), $filters);
-        $transactionMetricRows = $this->transactionReturnImpactService->enrichTransactions(
-            (clone $aggregateQuery)->get(['id', 'grand_total', 'discount', 'customer_id', 'created_at'])
-        );
-        $metricSummary = $this->transactionReturnImpactService->summarizeTransactionRows($transactionMetricRows);
+        $metricSummary = $this->buildTransactionMetricSummary($aggregateQuery);
+        // Subquery ID agar agregasi tidak mematerialisasi puluhan ribu ID ke memori.
+        $metricIds = fn () => (clone $aggregateQuery)->select('transactions.id');
 
-        $transactionIds = (clone $aggregateQuery)->pluck('id');
         $transactionIdQuery = Transaction::query()
             ->when($filters['outlet_id'] ?? null, fn ($q, $outletId) => $q->where('outlet_id', $outletId))
             ->when($filters['invoice'] ?? null, fn ($q, $invoice) => $q->where('invoice', 'like', '%'.$invoice.'%'))
@@ -116,22 +124,17 @@ class SalesReportController extends Controller
             $transactionIdQuery->whereHas('details', fn ($q) => $q->where('tenant_outlet_id', $filters['tenant_outlet_id']));
         }
 
-        $itemsSold = $transactionIds->isNotEmpty()
-            ? TransactionDetail::whereIn('transaction_id', $transactionIds)->sum('qty')
-            : 0;
-        $discountSplit = $transactionIds->isNotEmpty()
-            && Schema::hasColumn('transaction_details', 'tenant_discount_total')
+        $itemsSold = TransactionDetail::whereIn('transaction_id', $metricIds())->sum('qty');
+        $discountSplit = Schema::hasColumn('transaction_details', 'tenant_discount_total')
             && Schema::hasColumn('transaction_details', 'owner_discount_total')
             ? TransactionDetail::query()
-                ->whereIn('transaction_id', $transactionIds)
+                ->whereIn('transaction_id', $metricIds())
                 ->selectRaw('COALESCE(SUM(tenant_discount_total), 0) as tenant_discount_total')
                 ->selectRaw('COALESCE(SUM(owner_discount_total), 0) as owner_discount_total')
                 ->first()
             : null;
 
-        $profitTotal = $transactionIds->isNotEmpty()
-            ? Profit::whereIn('transaction_id', $transactionIds)->sum('total')
-            : 0;
+        $profitTotal = Profit::whereIn('transaction_id', $metricIds())->sum('total');
         $ownerSplitSummary = ! $isTenantOutlet
             ? ReportOwnerTenantSplit::aggregateForTransactionIds($transactionIdQuery)
             : [
@@ -418,14 +421,11 @@ class SalesReportController extends Controller
         ];
         if (in_array($activeTab, ['overview', 'analytics'], true)) {
             if (! $isTenantOutlet && ($filters['tenant_outlet_id'] ?? null)) {
-                $tenantDetailIds = TransactionDetail::query()
+                $tenantDetailSubquery = TransactionDetail::query()
+                    ->select('transaction_id')
                     ->where('tenant_outlet_id', $filters['tenant_outlet_id'])
-                    ->whereIn('transaction_id', $transactionIds)
-                    ->pluck('transaction_id')
-                    ->unique();
-
-                $tenantFilteredIds = $tenantDetailIds->isNotEmpty() ? $tenantDetailIds : collect([-1]);
-                $tenantFilteredQuery = Transaction::query()->whereIn('id', $tenantFilteredIds);
+                    ->whereIn('transaction_id', $metricIds());
+                $tenantFilteredQuery = Transaction::query()->whereIn('id', $tenantDetailSubquery);
 
                 $analytics = [
                     'payment_method_breakdown' => $this->analyticsService->buildPaymentMethodBreakdown((clone $tenantFilteredQuery)),
@@ -435,10 +435,10 @@ class SalesReportController extends Controller
                     $analytics += [
                         'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown((clone $tenantFilteredQuery)),
                         'daily_breakdown' => $this->analyticsService->buildDailyBreakdown((clone $tenantFilteredQuery)),
-                        'top_products' => $this->analyticsService->buildTopProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
-                        'full_products' => $this->analyticsService->buildProductPerformance($tenantFilteredIds, null, $filters['tenant_outlet_id']),
-                        'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($tenantFilteredIds, 10, $filters['tenant_outlet_id']),
-                        'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($tenantFilteredIds, $filters['tenant_outlet_id']),
+                        'top_products' => $this->analyticsService->buildTopProducts($tenantDetailSubquery, 10, $filters['tenant_outlet_id']),
+                        'full_products' => $this->analyticsService->buildProductPerformance($tenantDetailSubquery, null, $filters['tenant_outlet_id']),
+                        'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($tenantDetailSubquery, 10, $filters['tenant_outlet_id']),
+                        'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($tenantDetailSubquery, $filters['tenant_outlet_id']),
                     ];
                 }
             } else {
@@ -450,10 +450,10 @@ class SalesReportController extends Controller
                     $analytics += [
                         'hourly_breakdown' => $this->analyticsService->buildHourlyBreakdown($aggregateQuery),
                         'daily_breakdown' => $this->analyticsService->buildDailyBreakdown($aggregateQuery),
-                        'top_products' => $this->analyticsService->buildTopProducts($transactionIds, 10),
-                        'full_products' => $this->analyticsService->buildProductPerformance($transactionIds),
-                        'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($transactionIds, 10),
-                        'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($transactionIds),
+                        'top_products' => $this->analyticsService->buildTopProducts($metricIds(), 10),
+                        'full_products' => $this->analyticsService->buildProductPerformance($metricIds()),
+                        'slow_moving_products' => $this->analyticsService->buildSlowMovingProducts($metricIds(), 10),
+                        'category_breakdown' => $this->analyticsService->buildCategoryBreakdown($metricIds()),
                     ];
                 }
             }
@@ -462,11 +462,14 @@ class SalesReportController extends Controller
             $summary,
             $outletId,
             $filters,
-            $this->buildOwnerTargetBreakdownRows(
-                $transactionMetricRows,
-                $transactionIds,
-                $filters['tenant_outlet_id'] ?? null
-            )
+            // Metrik harian target hanya dihitung di tab target (punya UI-nya sendiri).
+            $activeTab === 'target'
+                ? $this->buildOwnerTargetBreakdownRows(
+                    $aggregateQuery,
+                    $filters['tenant_outlet_id'] ?? null
+                )
+                : [],
+            false
         );
         $ownerToppingBreakdown = ! $isTenantOutlet
             ? ReportOwnerTenantSplit::toppingBreakdownForTransactionIds(
@@ -996,50 +999,241 @@ class SalesReportController extends Controller
         ];
     }
 
-    protected function targetSummary(array $summary, ?int $outletId, array $filters, array $dailyMetrics = []): array
+    protected function targetSummary(array $summary, ?int $outletId, array $filters, array $dailyMetrics = [], bool $withRows = true): array
     {
-        return ReportTargetSummary::build($summary, $outletId, $filters, $dailyMetrics);
+        return ReportTargetSummary::build($summary, $outletId, $filters, $dailyMetrics, $withRows);
     }
 
-    protected function buildOwnerTargetBreakdownRows(Collection $transactionRows, Collection $transactionIds, mixed $tenantOutletId = null): array
+    /**
+     * Breakdown target harian via ajax (search + status + pagination).
+     * Agregat dihitung full-SQL per hari sehingga aman untuk rentang panjang;
+     * yang dipaginasi hanya baris hariannya.
+     */
+    public function targetBreakdown(Request $request): JsonResponse
     {
-        if ($transactionRows->isEmpty() || $transactionIds->isEmpty()) {
-            return [];
+        $validated = $request->validate([
+            'start_date' => ['required', 'date_format:Y-m-d'],
+            'end_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:start_date'],
+            'invoice' => ['nullable', 'string', 'max:100'],
+            'cashier_id' => ['nullable', 'integer'],
+            'customer_id' => ['nullable'],
+            'tenant_outlet_id' => ['nullable', 'integer'],
+            'q' => ['nullable', 'string', 'max:50'],
+            'status' => ['nullable', 'in:all,tercapai,tertinggal'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        $activeOutlet = $this->outletResolver->resolve($request, $request->user());
+        $outletId = $activeOutlet?->id;
+        $isTenantOutlet = (string) ($activeOutlet?->outlet_type ?? '') === 'tenant';
+        $filters = [
+            'start_date' => $validated['start_date'],
+            'end_date' => $validated['end_date'],
+            'invoice' => $validated['invoice'] ?? null,
+            'cashier_id' => $validated['cashier_id'] ?? null,
+            'customer_id' => $validated['customer_id'] ?? null,
+            'tenant_outlet_id' => $isTenantOutlet ? $outletId : ($validated['tenant_outlet_id'] ?? null),
+            'outlet_id' => $isTenantOutlet ? null : $outletId,
+        ];
+
+        $start = Carbon::createFromFormat('Y-m-d', $filters['start_date'], ReportTimezone::timezone())->startOfDay();
+        $end = Carbon::createFromFormat('Y-m-d', $filters['end_date'], ReportTimezone::timezone())->startOfDay();
+        if ($start->diffInDays($end) > 1825) {
+            return response()->json([
+                'message' => 'Rentang tanggal maksimal 5 tahun. Persempit periode lalu coba lagi.',
+            ], 422);
         }
 
-        $itemsByTransaction = TransactionDetail::query()
-            ->selectRaw('transaction_id, COALESCE(SUM(qty), 0) as total_items')
-            ->whereIn('transaction_id', $transactionIds)
-            ->when($tenantOutletId, fn ($query, $tenantId) => $query->where('tenant_outlet_id', $tenantId))
-            ->groupBy('transaction_id')
-            ->pluck('total_items', 'transaction_id');
+        $aggregateQuery = $this->applyFilters(Transaction::query(), $filters);
+        $dailyRows = $this->buildOwnerTargetBreakdownRows($aggregateQuery, $filters['tenant_outlet_id'] ?? null);
+        $result = ReportTargetSummary::paginateBreakdown(
+            $dailyRows,
+            $filters,
+            $outletId,
+            (int) ($validated['page'] ?? 1),
+            (int) ($validated['per_page'] ?? 31),
+            $validated['q'] ?? null,
+            (string) ($validated['status'] ?? 'all')
+        );
 
-        $profitByTransaction = Profit::query()
-            ->selectRaw('transaction_id, COALESCE(SUM(total), 0) as total_profit')
-            ->whereIn('transaction_id', $transactionIds)
-            ->groupBy('transaction_id')
-            ->pluck('total_profit', 'transaction_id');
+        return response()->json(['success' => true, ...$result]);
+    }
 
-        $ownerNetByTransaction = TransactionDetail::query()
-            ->selectRaw('transaction_id, COALESCE(SUM(owner_net_total), 0) as owner_net_total')
-            ->whereIn('transaction_id', $transactionIds)
-            ->when($tenantOutletId, fn ($query, $tenantId) => $query->where('tenant_outlet_id', $tenantId))
-            ->groupBy('transaction_id')
-            ->pluck('owner_net_total', 'transaction_id');
+    /**
+     * Ringkasan metrik transaksi murni via agregat SQL (tanpa hydrate seluruh baris).
+     * Semantik disamakan dengan TransactionReturnImpactService::summarizeTransactionRows:
+     * retur completed mengurangi revenue (dibatasi grand_total per nota) dan nota yang
+     * fully-returned dikeluarkan dari orders_count serta metrik profil customer.
+     */
+    protected function buildTransactionMetricSummary($aggregateQuery): array
+    {
+        $totals = (clone $aggregateQuery)
+            ->selectRaw('COUNT(*) as orders_count, COALESCE(SUM(grand_total), 0) as gross_total, COALESCE(SUM(discount), 0) as discount_total')
+            ->first();
 
-        return $transactionRows
-            ->groupBy(fn ($row) => ReportTimezone::sourceDateKey(
-                method_exists($row, 'getRawOriginal') ? $row->getRawOriginal('created_at') : $row->created_at
-            ))
-            ->map(function (Collection $rows, $date) use ($itemsByTransaction, $profitByTransaction, $ownerNetByTransaction) {
-                return [
-                    'date' => $date,
-                    'revenue_total' => (int) $rows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', $row->grand_total ?? 0)),
-                    'profit_total' => (int) $rows->sum(fn ($row) => (int) ($profitByTransaction->get($row->id) ?? 0)),
-                    'target_profit_total' => (int) $rows->sum(fn ($row) => (int) ($ownerNetByTransaction->get($row->id) ?? 0)),
-                    'items_sold' => (int) $rows->sum(fn ($row) => (int) ($itemsByTransaction->get($row->id) ?? 0)),
-                ];
-            })
+        $deltas = $this->completedReturnDeltas($aggregateQuery);
+        $fullyReturnedIds = $deltas['fullyReturnedIds'];
+
+        $activeQuery = (clone $aggregateQuery);
+        if ($fullyReturnedIds !== []) {
+            $activeQuery->whereNotIn('transactions.id', $fullyReturnedIds);
+        }
+
+        $activeCount = (clone $activeQuery)->count();
+        $walkInCount = (clone $activeQuery)->whereNull('transactions.customer_id')->count();
+        $distinctCustomers = (clone $activeQuery)->whereNotNull('transactions.customer_id')->distinct()->count('transactions.customer_id');
+
+        $grossTotal = (int) ($totals->gross_total ?? 0);
+        $revenueTotal = max(0, $grossTotal - $deltas['returnedTotal']);
+        $ordersCount = max(0, (int) ($totals->orders_count ?? 0) - count($fullyReturnedIds));
+
+        return [
+            'orders_count' => $ordersCount,
+            'revenue_total' => $revenueTotal,
+            'discount_total' => (int) ($totals->discount_total ?? 0),
+            'walk_in_count' => (int) $walkInCount,
+            'registered_customer_count' => max(0, (int) $activeCount - (int) $walkInCount),
+            'active_customer_count' => (int) $distinctCustomers,
+            'average_order' => $activeCount > 0 ? (int) round($revenueTotal / $activeCount) : 0,
+        ];
+    }
+
+    /**
+     * Delta retur completed per transaksi (grouped SQL, hanya nota yang punya retur).
+     * returnedTotal sudah dibatasi min(grand_total, total retur) per nota.
+     *
+     * @return array{returnedById: array<int,int>, fullyReturnedIds: array<int>, returnedTotal: int}
+     */
+    protected function completedReturnDeltas($aggregateQuery): array
+    {
+        $groups = SalesReturn::query()
+            ->join('transactions', 'transactions.id', '=', 'sales_returns.transaction_id')
+            ->whereIn('sales_returns.transaction_id', (clone $aggregateQuery)->select('transactions.id'))
+            ->where('sales_returns.status', 'completed')
+            ->groupBy('sales_returns.transaction_id', 'transactions.grand_total')
+            ->selectRaw('sales_returns.transaction_id as transaction_id, COUNT(*) as returns_count, COALESCE(SUM(sales_returns.total_return_amount), 0) as returned_total, transactions.grand_total as grand_total')
+            ->get();
+
+        $returnedById = [];
+        $fullyReturnedIds = [];
+        $returnedTotal = 0;
+
+        foreach ($groups as $group) {
+            $transactionId = (int) $group->transaction_id;
+            $grandTotal = (int) ($group->grand_total ?? 0);
+            $capped = min($grandTotal, max(0, (int) ($group->returned_total ?? 0)));
+            $returnedById[$transactionId] = $capped;
+            $returnedTotal += $capped;
+
+            if ($grandTotal > 0 && $grandTotal - $capped === 0 && (int) ($group->returns_count ?? 0) > 0) {
+                $fullyReturnedIds[] = $transactionId;
+            }
+        }
+
+        return [
+            'returnedById' => $returnedById,
+            'fullyReturnedIds' => $fullyReturnedIds,
+            'returnedTotal' => $returnedTotal,
+        ];
+    }
+
+    /**
+     * Metrik harian target murni via agregat SQL yang di-group per tanggal tampilan.
+     * Hasil: ['Y-m-d' => ['revenue_total'=>, 'profit_total'=>, 'target_profit_total'=>, 'items_sold'=>]].
+     * Ukuran hasil = jumlah hari, bukan jumlah transaksi, sehingga aman untuk rentang panjang.
+     */
+    protected function buildDailyTargetMetrics($aggregateQuery, mixed $tenantOutletId = null): array
+    {
+        $dateExpr = ReportTimezone::sourceToDisplayDateExpression('transactions.created_at');
+        $metricIds = fn () => (clone $aggregateQuery)->select('transactions.id');
+
+        $grossByDay = (clone $aggregateQuery)
+            ->selectRaw("{$dateExpr} as date_key, COALESCE(SUM(transactions.grand_total), 0) as gross_total")
+            ->groupBy('date_key')
+            ->get()
+            ->keyBy('date_key');
+
+        $itemsByDay = TransactionDetail::query()
+            ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
+            ->whereIn('transaction_details.transaction_id', $metricIds())
+            ->when($tenantOutletId, fn ($query, $tenantId) => $query->where('transaction_details.tenant_outlet_id', $tenantId))
+            ->selectRaw("{$dateExpr} as date_key, COALESCE(SUM(transaction_details.qty), 0) as items_sold")
+            ->groupBy('date_key')
+            ->get()
+            ->keyBy('date_key');
+
+        $profitByDay = Profit::query()
+            ->join('transactions', 'transactions.id', '=', 'profits.transaction_id')
+            ->whereIn('profits.transaction_id', $metricIds())
+            ->selectRaw("{$dateExpr} as date_key, COALESCE(SUM(profits.total), 0) as profit_total")
+            ->groupBy('date_key')
+            ->get()
+            ->keyBy('date_key');
+
+        $ownerNetByDay = TransactionDetail::query()
+            ->join('transactions', 'transactions.id', '=', 'transaction_details.transaction_id')
+            ->whereIn('transaction_details.transaction_id', $metricIds())
+            ->when($tenantOutletId, fn ($query, $tenantId) => $query->where('transaction_details.tenant_outlet_id', $tenantId))
+            ->selectRaw("{$dateExpr} as date_key, COALESCE(SUM(transaction_details.owner_net_total), 0) as owner_net_total")
+            ->groupBy('date_key')
+            ->get()
+            ->keyBy('date_key');
+
+        // Retur per nota (hanya nota ber-retur) + tanggal nota untuk atribusi harian.
+        // Grouped kecil karena satu baris per nota yang punya retur completed.
+        $returnGroups = SalesReturn::query()
+            ->join('transactions', 'transactions.id', '=', 'sales_returns.transaction_id')
+            ->whereIn('sales_returns.transaction_id', $metricIds())
+            ->where('sales_returns.status', 'completed')
+            ->selectRaw("{$dateExpr} as date_key, sales_returns.transaction_id as transaction_id, transactions.grand_total as grand_total, COALESCE(SUM(sales_returns.total_return_amount), 0) as returned_total")
+            ->groupBy('sales_returns.transaction_id', 'transactions.grand_total', 'date_key')
+            ->get();
+
+        $returnedByDay = [];
+        foreach ($returnGroups as $group) {
+            if (blank($group->date_key)) {
+                continue;
+            }
+            $capped = min((int) ($group->grand_total ?? 0), max(0, (int) ($group->returned_total ?? 0)));
+            $returnedByDay[$group->date_key] = ($returnedByDay[$group->date_key] ?? 0) + $capped;
+        }
+
+        $days = collect()
+            ->merge($grossByDay->keys())
+            ->merge($itemsByDay->keys())
+            ->merge($profitByDay->keys())
+            ->merge($ownerNetByDay->keys())
+            ->filter()
+            ->unique()
+            ->sort()
+            ->values();
+
+        $metrics = [];
+        foreach ($days as $day) {
+            $metrics[$day] = [
+                'revenue_total' => max(0, (int) ($grossByDay->get($day)->gross_total ?? 0) - (int) ($returnedByDay[$day] ?? 0)),
+                'profit_total' => (int) ($profitByDay->get($day)->profit_total ?? 0),
+                'target_profit_total' => (int) ($ownerNetByDay->get($day)->owner_net_total ?? 0),
+                'items_sold' => (int) ($itemsByDay->get($day)->items_sold ?? 0),
+            ];
+        }
+
+        return $metrics;
+    }
+
+    protected function buildOwnerTargetBreakdownRows($aggregateQuery, mixed $tenantOutletId = null): array
+    {
+        $byDay = $this->buildDailyTargetMetrics($aggregateQuery, $tenantOutletId);
+
+        return collect($byDay)
+            ->map(fn ($metrics, $date) => [
+                'date' => $date,
+                'revenue_total' => (int) $metrics['revenue_total'],
+                'profit_total' => (int) $metrics['profit_total'],
+                'target_profit_total' => (int) $metrics['target_profit_total'],
+                'items_sold' => (int) $metrics['items_sold'],
+            ])
             ->sortKeys()
             ->values()
             ->all();
@@ -1881,7 +2075,7 @@ class SalesReportController extends Controller
 
     protected function resolveActiveTab(Request $request): string
     {
-        $allowedTabs = ['overview', 'analytics', 'transactions', 'settlement'];
+        $allowedTabs = ['overview', 'target', 'analytics', 'transactions', 'settlement'];
         $activeTab = (string) $request->query('tab', 'overview');
 
         return in_array($activeTab, $allowedTabs, true) ? $activeTab : 'overview';
@@ -1922,12 +2116,12 @@ class SalesReportController extends Controller
                 ->whereIn('transaction_id', $balanceTransactionQuery->select('transactions.id'))
                 ->when($filters['outlet_id'] ?? null, fn ($query, $outletId) => $query->where('outlet_id', $outletId))
                 ->whereIn('tenant_outlet_id', $tenantOutletIds->all())
-                ->where(function (Builder $builder) {
+                ->where(function (EloquentBuilder $builder) {
                     $builder
                         ->where('payment_status', '!=', 'returned')
                         ->orWhereNull('payment_status');
                 })
-                ->where(function (Builder $builder) {
+                ->where(function (EloquentBuilder $builder) {
                     $builder
                         ->where('grand_total', '>', 0)
                         ->orWhere('subtotal', '>', 0);

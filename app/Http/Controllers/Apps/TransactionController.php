@@ -809,20 +809,8 @@ class TransactionController extends Controller
         ];
         $limit = (int) ($validated['limit'] ?? 60);
         $page = (int) ($validated['page'] ?? 1);
-        $cacheKey = sprintf(
-            'pos:product-catalog:%s:%s:%s:%s:%s',
-            (string) ($outlet?->id ?? 'global'),
-            md5((string) ($filters['q'] ?? '')),
-            (string) ($filters['category_id'] ?? 'all'),
-            $limit,
-            $page
-        );
 
-        $catalogResult = Cache::remember(
-            $cacheKey,
-            now()->addSeconds(15),
-            fn () => $this->buildPosProductCatalog($outlet, $filters, $limit, $page)
-        );
+        $catalogResult = $this->buildPosProductCatalog($outlet, $filters, $limit, $page);
 
         return response()->json([
             'success' => true,

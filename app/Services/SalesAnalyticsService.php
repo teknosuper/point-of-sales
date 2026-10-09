@@ -87,7 +87,7 @@ class SalesAnalyticsService
      */
     public function buildProductPerformance($transactionIds, ?int $limit = null, ?int $tenantOutletId = null): array
     {
-        if ($transactionIds->isEmpty()) {
+        if ($transactionIds instanceof Collection && $transactionIds->isEmpty()) {
             return [];
         }
 
@@ -156,7 +156,7 @@ class SalesAnalyticsService
      */
     public function buildSlowMovingProducts($transactionIds, int $limit = 10, ?int $tenantOutletId = null): array
     {
-        if ($transactionIds->isEmpty()) {
+        if ($transactionIds instanceof Collection && $transactionIds->isEmpty()) {
             return [];
         }
 
@@ -196,7 +196,7 @@ class SalesAnalyticsService
      */
     public function buildCategoryBreakdown($transactionIds, ?int $tenantOutletId = null): array
     {
-        if ($transactionIds->isEmpty()) {
+        if ($transactionIds instanceof Collection && $transactionIds->isEmpty()) {
             return [];
         }
 
@@ -231,20 +231,49 @@ class SalesAnalyticsService
      */
     public function buildPaymentMethodBreakdown($query): array
     {
-        $rows = $this->transactionReturnImpactService->enrichTransactions(
-            (clone $query)->get(['id', 'payment_method', 'grand_total', 'customer_id'])
-        );
+        $grossByMethod = (clone $query)
+            ->selectRaw("COALESCE(payment_method, 'unknown') as method")
+            ->selectRaw('COUNT(*) as orders_count')
+            ->selectRaw('COALESCE(SUM(grand_total), 0) as gross_total')
+            ->groupBy('method')
+            ->get();
 
-        return $rows
-            ->groupBy(fn ($row) => $row->payment_method ?? 'unknown')
-            ->map(function (Collection $rows, $paymentMethod) {
-                $activeRows = $rows->filter(fn ($row) => ! (bool) data_get($row, 'is_fully_returned', false));
+        // Retur completed per nota (grouped, hanya nota yang punya retur) agar
+        // revenue bersih = gross - retur (dibatasi grand_total) tanpa hydrate semua nota.
+        $returnGroups = DB::table('sales_returns')
+            ->join('transactions', 'transactions.id', '=', 'sales_returns.transaction_id')
+            ->whereIn('sales_returns.transaction_id', (clone $query)->select('transactions.id'))
+            ->where('sales_returns.status', 'completed')
+            ->groupBy('sales_returns.transaction_id', 'transactions.grand_total', 'transactions.payment_method')
+            ->selectRaw('sales_returns.transaction_id as transaction_id, COUNT(*) as returns_count')
+            ->selectRaw('COALESCE(SUM(sales_returns.total_return_amount), 0) as returned_total')
+            ->selectRaw('transactions.grand_total as grand_total, transactions.payment_method as payment_method')
+            ->get();
+
+        $adjustByMethod = [];
+        foreach ($returnGroups as $group) {
+            $method = $group->payment_method ?? 'unknown';
+            $grand = (int) ($group->grand_total ?? 0);
+            $capped = min($grand, max(0, (int) ($group->returned_total ?? 0)));
+
+            $adjustByMethod[$method] ??= ['returned_total' => 0, 'fully_returned_count' => 0];
+            $adjustByMethod[$method]['returned_total'] += $capped;
+
+            if ($grand > 0 && $grand - $capped === 0 && (int) ($group->returns_count ?? 0) > 0) {
+                $adjustByMethod[$method]['fully_returned_count']++;
+            }
+        }
+
+        return $grossByMethod
+            ->map(function ($row) use ($adjustByMethod) {
+                $method = $row->method ?? 'unknown';
+                $adjust = $adjustByMethod[$method] ?? ['returned_total' => 0, 'fully_returned_count' => 0];
 
                 return [
-                    'payment_method' => $paymentMethod,
-                    'payment_method_label' => $this->formatPaymentMethod($paymentMethod),
-                    'orders_count' => $activeRows->count(),
-                    'revenue_total' => (int) $rows->sum(fn ($row) => (int) data_get($row, 'net_grand_total', $row->grand_total ?? 0)),
+                    'payment_method' => $method,
+                    'payment_method_label' => $this->formatPaymentMethod($method),
+                    'orders_count' => max(0, (int) ($row->orders_count ?? 0) - (int) $adjust['fully_returned_count']),
+                    'revenue_total' => max(0, (int) ($row->gross_total ?? 0) - (int) $adjust['returned_total']),
                 ];
             })
             ->sortByDesc('revenue_total')

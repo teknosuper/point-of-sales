@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import axios from "axios";
 import { Head, router, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import SalesFiltersModal from "@/Components/Reports/SalesFiltersModal";
@@ -178,6 +179,24 @@ const Sales = ({
     const [showFilters, setShowFilters] = useState(false);
     const [showTargetBreakdownModal, setShowTargetBreakdownModal] =
         useState(false);
+    // Breakdown target via ajax (search + status + pagination) agar rentang
+    // panjang tidak merender ribuan baris sekaligus.
+    const [tbPage, setTbPage] = useState(1);
+    const [tbPerPage, setTbPerPage] = useState(31);
+    const [tbQuery, setTbQuery] = useState("");
+    const [tbDebouncedQuery, setTbDebouncedQuery] = useState("");
+    const [tbStatus, setTbStatus] = useState("all");
+    const [tbRows, setTbRows] = useState([]);
+    const [tbMeta, setTbMeta] = useState(null);
+    const [tbLoading, setTbLoading] = useState(false);
+
+    useEffect(() => {
+        const timerId = window.setTimeout(() => {
+            setTbDebouncedQuery(tbQuery.trim());
+            setTbPage(1);
+        }, 300);
+        return () => window.clearTimeout(timerId);
+    }, [tbQuery]);
     const [filterData, setFilterData] = useState({
         ...defaultFilterState,
         start_date: castFilterString(filters?.start_date),
@@ -190,6 +209,62 @@ const Sales = ({
         mutation_q: castFilterString(filters?.mutation_q),
     });
 
+    useEffect(() => {
+        if (!showTargetBreakdownModal) {
+            return;
+        }
+        if (!filterData.start_date || !filterData.end_date) {
+            setTbRows([]);
+            setTbMeta(null);
+            return;
+        }
+        const controller = new AbortController();
+        setTbLoading(true);
+        const nonEmpty = (value) =>
+            value === "" || value === null || value === undefined
+                ? undefined
+                : value;
+        axios
+            .get(route("reports.sales.target-breakdown"), {
+                params: {
+                    start_date: filterData.start_date,
+                    end_date: filterData.end_date,
+                    invoice: nonEmpty(filterData.invoice),
+                    cashier_id: nonEmpty(filterData.cashier_id),
+                    customer_id: nonEmpty(filterData.customer_id),
+                    tenant_outlet_id: nonEmpty(filterData.tenant_outlet_id),
+                    q: tbDebouncedQuery || undefined,
+                    status: tbStatus,
+                    page: tbPage,
+                    per_page: tbPerPage,
+                },
+                signal: controller.signal,
+            })
+            .then((response) => {
+                setTbRows(response.data?.data || []);
+                setTbMeta(response.data?.meta || null);
+            })
+            .catch((error) => {
+                if (error?.code !== "ERR_CANCELED") {
+                    setTbRows([]);
+                    setTbMeta(null);
+                }
+            })
+            .finally(() => setTbLoading(false));
+        return () => controller.abort();
+    }, [
+        showTargetBreakdownModal,
+        tbPage,
+        tbPerPage,
+        tbDebouncedQuery,
+        tbStatus,
+        filterData.start_date,
+        filterData.end_date,
+        filterData.invoice,
+        filterData.cashier_id,
+        filterData.customer_id,
+        filterData.tenant_outlet_id,
+    ]);
     const cashierFromFilters = useMemo(
         () =>
             cashiers.find(
@@ -664,10 +739,20 @@ const Sales = ({
         { label: 'Hari Ini', value: 'today' },
         { label: 'Kemarin', value: 'yesterday' },
         { label: '7 Hari Terakhir', value: '7days' },
+        { label: '30 Hari Terakhir', value: '30days' },
         { label: '1 Bulan Terakhir', value: '1month' },
+        { label: 'Seluruh Data', value: 'all' },
     ];
 
     const applyDatePreset = (preset) => {
+        if (preset === 'all') {
+            setFilterData((prev) => ({
+                ...prev,
+                start_date: '',
+                end_date: '',
+            }));
+            return;
+        }
         const today = new Date();
         const todayInReportTimezone = toTimeZoneDateInput(
             today,
@@ -686,6 +771,9 @@ const Sales = ({
                 break;
             case '7days':
                 startDate = shiftReportDateInput(todayInReportTimezone, -6);
+                break;
+            case '30days':
+                startDate = shiftReportDateInput(todayInReportTimezone, -29);
                 break;
             case '1month':
                 startDate = subtractOneMonthFromReportDateInput(
@@ -1074,25 +1162,40 @@ const Sales = ({
             formatter: (value) => Number(value || 0).toLocaleString("id-ID"),
         },
     ];
-    const targetBreakdownRows = Array.isArray(targets?.breakdown)
-        ? targets.breakdown
-        : [];
-    const unmetTargetDays = targetBreakdownRows.filter(
-        (row) =>
-            row.sales_met === false ||
-            row.profit_met === false ||
-            row.items_met === false
-    ).length;
-    const fullyMetTargetDays = targetBreakdownRows.filter(
-        (row) =>
-            row.sales_met === true &&
-            row.profit_met === true &&
-            row.items_met === true
-    ).length;
+    const targetBreakdownSummary = targets?.breakdown_summary || {};
+    const unmetTargetDays = targetBreakdownSummary.unmet_days ?? 0;
+    const fullyMetTargetDays = targetBreakdownSummary.fully_met_days ?? 0;
+    const periodInfo = useMemo(() => {
+        const { start_date, end_date } = filterData;
+        if (!start_date || !end_date) {
+            return { bounded: false };
+        }
+        const start = new Date(`${start_date}T00:00:00`);
+        const end = new Date(`${end_date}T00:00:00`);
+        if (isNaN(start) || isNaN(end)) {
+            return { bounded: false };
+        }
+        const fmt = (d) =>
+            d.toLocaleDateString("id-ID", {
+                weekday: "long",
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+            });
+        const days =
+            Math.max(1, Math.round((end - start) / 86400000) + 1);
+        return {
+            bounded: true,
+            startLabel: fmt(start),
+            endLabel: fmt(end),
+            days,
+        };
+    }, [filterData.start_date, filterData.end_date]);
     const tabs = [
         { key: "overview", label: "Ringkasan" },
         { key: "analytics", label: "Analitik" },
         { key: "transactions", label: "Transaksi" },
+        { key: "target", label: "Target" },
         { key: "settlement", label: "Settlement" },
     ];
     const activeOutletName = workspace?.active_outlet?.name || "-";
@@ -1187,7 +1290,7 @@ const Sales = ({
 
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">
-                    <div className="grid gap-2 md:grid-cols-4">
+                    <div className="grid gap-2 md:grid-cols-5">
                         {tabs.map((tab) => (
                             <button
                                 key={tab.key}
@@ -1252,18 +1355,120 @@ const Sales = ({
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
                                 Periode Tampil
                             </p>
-                            <p className="mt-1 font-semibold">
-                                {filterData.start_date || "Awal data"} - {filterData.end_date || "Sekarang"}
-                            </p>
-                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
-                                Tab settlement memakai saldo kumulatif sampai akhir periode
-                            </p>
+                            <div className="mt-1 flex items-start gap-2">
+                                <span className="mt-0.5 rounded-lg bg-blue-600/10 p-1.5 text-blue-700 dark:bg-blue-400/10 dark:text-blue-300">
+                                    <IconCalendar size={16} />
+                                </span>
+                                <div>
+                                    {periodInfo.bounded ? (
+                                        <>
+                                            <p className="font-semibold leading-snug">
+                                                {periodInfo.startLabel}
+                                                <span className="mx-1 text-blue-400">
+                                                    →
+                                                </span>
+                                                {periodInfo.endLabel}
+                                            </p>
+                                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                                                <span className="mr-1 inline-flex rounded-full bg-blue-600/10 px-2 py-0.5 font-semibold text-blue-700 dark:bg-blue-400/10 dark:text-blue-200">
+                                                    {periodInfo.days.toLocaleString(
+                                                        "id-ID"
+                                                    )}{" "}
+                                                    hari
+                                                </span>
+                                                {reportTimezoneLabel
+                                                    ? `Zona ${reportTimezoneLabel}`
+                                                    : null}
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <p className="font-semibold leading-snug">
+                                                Seluruh data
+                                            </p>
+                                            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                                                Tanpa filter tanggal — semua
+                                                riwayat dihitung.{" "}
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setShowFilters(true)
+                                                    }
+                                                    className="font-semibold underline underline-offset-2 hover:text-blue-900 dark:hover:text-white"
+                                                >
+                                                    Atur periode
+                                                </button>
+                                            </p>
+                                        </>
+                                    )}
+                                    <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                                        Tab settlement memakai saldo kumulatif
+                                        sampai akhir periode
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
+                        {/* Summary Header */}
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                            <div className="flex flex-col gap-4 bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 p-5 text-white sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex items-start gap-3">
+                                    <span className="rounded-xl bg-white/20 p-2.5">
+                                        <IconTrendingUp size={22} />
+                                    </span>
+                                    <div>
+                                        <h2 className="text-lg font-bold leading-tight">
+                                            Ringkasan Penjualan
+                                        </h2>
+                                        <p className="mt-1 text-sm font-medium text-white/90">
+                                            {periodInfo.bounded
+                                                ? `${periodInfo.startLabel} → ${periodInfo.endLabel}`
+                                                : "Seluruh data"}
+                                        </p>
+                                        <p className="mt-1 text-xs text-white/75">
+                                            {periodInfo.bounded
+                                                ? `${periodInfo.days.toLocaleString("id-ID")} hari • ${safeSummary.orders_count.toLocaleString("id-ID")} transaksi • ${activeOutletName}`
+                                                : `${safeSummary.orders_count.toLocaleString("id-ID")} transaksi • ${activeOutletName} • tanpa filter tanggal`}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1.5 text-xs font-semibold">
+                                        <IconCalendar size={14} />
+                                        {periodInfo.bounded
+                                            ? `${periodInfo.days.toLocaleString("id-ID")} hari`
+                                            : "Semua riwayat"}
+                                    </span>
+                                    {!periodInfo.bounded ? (
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setShowFilters(true)
+                                            }
+                                            className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-primary-700 transition hover:bg-primary-50"
+                                        >
+                                            Atur periode
+                                        </button>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setShowFilters(true)
+                                            }
+                                            className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-primary-700 transition hover:bg-primary-50"
+                                        >
+                                            Atur tanggal laporan
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
                 {activeTab === "overview" ? (
                     <>
+
                         {/* Summary Cards */}
                         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                             {summaryCards.map((card) => (
@@ -1333,6 +1538,19 @@ const Sales = ({
                             </div>
                         ) : null}
 
+                    </>
+                ) : null}
+
+                {activeTab === "target" ? (
+                    <div className="space-y-6">
+                        <div>
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                Target Penjualan
+                            </h2>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                Pantau pencapaian omzet, profit, dan item terhadap target pada periode aktif.
+                            </p>
+                        </div>
                         <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-4 flex items-start justify-between gap-3">
                         <div>
@@ -1350,9 +1568,10 @@ const Sales = ({
                             {targets?.has_bounded_period ? (
                                 <button
                                     type="button"
-                                    onClick={() =>
-                                        setShowTargetBreakdownModal(true)
-                                    }
+                                    onClick={() => {
+                                        setTbPage(1);
+                                        setShowTargetBreakdownModal(true);
+                                    }}
                                     className="inline-flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 transition hover:bg-primary-100 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-300"
                                 >
                                     Lihat breakdown target
@@ -1596,9 +1815,10 @@ const Sales = ({
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={() =>
-                                        setShowTargetBreakdownModal(true)
-                                    }
+                                    onClick={() => {
+                                        setTbPage(1);
+                                        setShowTargetBreakdownModal(true);
+                                    }}
                                     className="inline-flex items-center justify-center rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-primary-500/20 transition hover:bg-primary-700"
                                 >
                                     Buka Breakdown Target
@@ -1607,7 +1827,7 @@ const Sales = ({
                         </div>
                     ) : null}
                         </div>
-                    </>
+                    </div>
                 ) : null}
 
                 {activeTab === "analytics" ? (
@@ -3164,15 +3384,106 @@ const Sales = ({
                             </div>
 
                             <div className="max-h-[75vh] overflow-auto p-6">
+                                <div className="mb-4 grid gap-2 md:grid-cols-[1fr_180px_150px_130px]">
+                                    <div className="relative">
+                                        <IconSearch
+                                            size={16}
+                                            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={tbQuery}
+                                            onChange={(e) =>
+                                                setTbQuery(e.target.value)
+                                            }
+                                            placeholder="Cari tanggal, mis. 2026-10-09 atau 09 Okt"
+                                            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-primary-400 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                        />
+                                    </div>
+                                    <select
+                                        value={tbStatus}
+                                        onChange={(e) => {
+                                            setTbStatus(e.target.value);
+                                            setTbPage(1);
+                                        }}
+                                        className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-400 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                    >
+                                        <option value="all">Semua status</option>
+                                        <option value="tercapai">Tercapai</option>
+                                        <option value="tertinggal">
+                                            Tertinggal
+                                        </option>
+                                    </select>
+                                    <select
+                                        value={tbPerPage}
+                                        onChange={(e) => {
+                                            setTbPerPage(
+                                                Number(e.target.value) || 31
+                                            );
+                                            setTbPage(1);
+                                        }}
+                                        className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-400 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                                    >
+                                        {[14, 31, 62, 100].map((n) => (
+                                            <option key={n} value={n}>
+                                                {n} / halaman
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <div className="flex items-center justify-end gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={
+                                                tbLoading ||
+                                                (tbMeta?.current_page ?? 1) <= 1
+                                            }
+                                            onClick={() =>
+                                                setTbPage((p) =>
+                                                    Math.max(1, p - 1)
+                                                )
+                                            }
+                                            className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                                        >
+                                            ‹ Prev
+                                        </button>
+                                        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                            {tbMeta
+                                                ? `${tbMeta.current_page} / ${tbMeta.last_page}`
+                                                : "1 / 1"}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            disabled={
+                                                tbLoading ||
+                                                (tbMeta?.current_page ?? 1) >=
+                                                    (tbMeta?.last_page ?? 1)
+                                            }
+                                            onClick={() =>
+                                                setTbPage((p) => p + 1)
+                                            }
+                                            className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                                        >
+                                            Next ›
+                                        </button>
+                                    </div>
+                                </div>
+                                <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+                                    {tbLoading
+                                        ? "Memuat breakdown target..."
+                                        : tbMeta
+                                          ? `Menampilkan ${tbRows.length.toLocaleString("id-ID")} dari ${Number(tbMeta.total ?? 0).toLocaleString("id-ID")} hari • ${tbMeta.period_label || ""}`
+                                          : "Buka modal untuk memuat breakdown target."}
+                                </p>
                                 <div className="mb-4 grid gap-3 md:grid-cols-3">
                                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
                                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                                             Hari memenuhi omzet
                                         </p>
                                         <p className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
-                                            {targetBreakdownRows
-                                                .filter((row) => row.sales_met)
-                                                .length.toLocaleString("id-ID")}
+                                            {Number(
+                                                tbMeta?.summary
+                                                    ?.sales_met_days ?? 0
+                                            ).toLocaleString("id-ID")}
                                         </p>
                                     </div>
                                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
@@ -3180,9 +3491,10 @@ const Sales = ({
                                             Hari memenuhi profit
                                         </p>
                                         <p className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
-                                            {targetBreakdownRows
-                                                .filter((row) => row.profit_met)
-                                                .length.toLocaleString("id-ID")}
+                                            {Number(
+                                                tbMeta?.summary
+                                                    ?.profit_met_days ?? 0
+                                            ).toLocaleString("id-ID")}
                                         </p>
                                     </div>
                                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/30">
@@ -3190,9 +3502,10 @@ const Sales = ({
                                             Hari memenuhi item
                                         </p>
                                         <p className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
-                                            {targetBreakdownRows
-                                                .filter((row) => row.items_met)
-                                                .length.toLocaleString("id-ID")}
+                                            {Number(
+                                                tbMeta?.summary
+                                                    ?.items_met_days ?? 0
+                                            ).toLocaleString("id-ID")}
                                         </p>
                                     </div>
                                 </div>
@@ -3216,7 +3529,7 @@ const Sales = ({
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-800 dark:bg-slate-900">
-                                            {targetBreakdownRows.map((row) => (
+                                            {tbRows.map((row) => (
                                                 <tr key={row.date}>
                                                     <td className="px-4 py-3 align-top text-sm font-medium text-slate-900 dark:text-white">
                                                         {row.label}
@@ -3314,16 +3627,15 @@ const Sales = ({
                                                     </td>
                                                 </tr>
                                             ))}
-                                            {targetBreakdownRows.length ===
-                                            0 ? (
+                                            {tbRows.length === 0 ? (
                                                 <tr>
                                                     <td
                                                         colSpan={4}
                                                         className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                                                     >
-                                                        Breakdown target belum
-                                                        tersedia. Pastikan filter
-                                                        tanggal sudah lengkap.
+                                                        {tbLoading
+                                                            ? "Memuat breakdown target..."
+                                                            : "Tidak ada hari yang cocok. Ubah kata kunci, status, atau rentang tanggal."}
                                                     </td>
                                                 </tr>
                                             ) : null}
