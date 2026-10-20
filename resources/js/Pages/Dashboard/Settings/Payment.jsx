@@ -3,7 +3,6 @@ import { Head, useForm, usePage } from "@inertiajs/react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import Input from "@/Components/Dashboard/Input";
 import Checkbox from "@/Components/Dashboard/Checkbox";
-import PasswordGate from "@/Components/Dashboard/PasswordGate";
 import useFlashToast from "@/Hooks/useFlashToast";
 import { useAuthorization } from "@/Utils/authorization";
 import {
@@ -428,11 +427,7 @@ export default function Payment({
         </>
     );
 
-    return (
-        <PasswordGate label="pengaturan payment gateway">
-            {content}
-        </PasswordGate>
-    );
+    return content;
 }
 
 Payment.layout = (page) => <DashboardLayout children={page} />;
