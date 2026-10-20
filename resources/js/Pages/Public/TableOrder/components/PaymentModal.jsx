@@ -8,6 +8,7 @@ export default function PaymentModal({
     isPakasirQris,
     pakasirQrImageUrl,
     pakasirPaymentNumber,
+    pakasirPaymentUrl,
     pakasirExpiresAt,
     grandTotal,
     onCopyText,
@@ -66,9 +67,9 @@ export default function PaymentModal({
                                 </button>
                             </div>
                         </div>
-                    ) : (
+                    ) : pakasirPaymentNumber ? (
                         <div className="rounded-2xl bg-slate-50 p-4">
-                            <p className="text-xs text-slate-500">Nomor pembayaran</p>
+                            <p className="text-xs text-slate-500">Nomor pembayaran / Virtual Account</p>
                             <p className="mt-1 break-all text-lg font-bold text-slate-900">
                                 {pakasirPaymentNumber || "-"}
                             </p>
@@ -82,6 +83,17 @@ export default function PaymentModal({
                                 </button>
                             )}
                         </div>
+                    ) : null}
+
+                    {pakasirPaymentUrl && (
+                        <a
+                            href={pakasirPaymentUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block w-full rounded-xl bg-emerald-600 py-3 text-center text-sm font-bold text-white shadow-md shadow-emerald-600/20 hover:bg-emerald-700 transition-colors"
+                        >
+                            Buka Link Pembayaran
+                        </a>
                     )}
 
                     <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 text-sm">

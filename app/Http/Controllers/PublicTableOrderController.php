@@ -540,7 +540,7 @@ class PublicTableOrderController extends Controller
             } catch (PaymentGatewayException $exception) {
                 return redirect()
                     ->route('table-order.status', $order->access_token)
-                    ->with('warning', 'Metode pembayaran berhasil diubah ke ' . $newPaymentMethod . ', namun link pembayaran gagal dibuat otomatis: ' . $exception->getMessage());
+                    ->with('warning', 'Metode pembayaran berhasil diubah ke '.$newPaymentMethod.', namun link pembayaran gagal dibuat otomatis: '.$exception->getMessage());
             }
         }
 
@@ -862,8 +862,8 @@ class PublicTableOrderController extends Controller
         if ($mappedStatus !== (string) ($transaction->payment_status ?? '')) {
             $transaction->update([
                 'payment_status' => $mappedStatus,
-                'payment_reference' => $invoice['id'] ?? $invoice['order_id'] ?? $transaction->payment_reference,
-                'payment_url' => $invoice['invoice_url'] ?? $transaction->payment_url,
+                'payment_reference' => $invoice['txn_id'] ?? $invoice['id'] ?? $invoice['order_id'] ?? $transaction->payment_reference,
+                'payment_url' => $invoice['payment_link'] ?? $invoice['invoice_url'] ?? $transaction->payment_url,
                 'payment_expires_at' => $invoice['expired_at'] ?? $transaction->payment_expires_at,
             ]);
 
@@ -1176,11 +1176,13 @@ class PublicTableOrderController extends Controller
             return $paymentResponse['raw']['payment'] ?? $paymentResponse['raw'] ?? null;
         }
 
-        $rawPayment = $paymentResponse['raw']['payment'] ?? [];
+        $rawPayment = $paymentResponse['raw']['payment'] ?? $paymentResponse['raw'] ?? [];
         $paymentUrl = (string) ($paymentResponse['payment_url'] ?? '');
         $resolvedMethod = $rawPayment['payment_method']
             ?? (str_contains($paymentUrl, 'qris_only=1') ? 'qris' : 'pakasir');
-        $paymentNumber = $rawPayment['payment_number'] ?? ($paymentResponse['payment_number'] ?? null);
+        $paymentNumber = $rawPayment['qr_string']
+            ?? $rawPayment['va_number']
+            ?? ($rawPayment['payment_number'] ?? ($paymentResponse['payment_number'] ?? null));
         $expiredAt = $rawPayment['expired_at'] ?? ($paymentResponse['expired_at'] ?? null);
 
         if (blank($paymentNumber) && blank($expiredAt) && blank($rawPayment)) {
@@ -1188,6 +1190,7 @@ class PublicTableOrderController extends Controller
         }
 
         return [
+            'txn_id' => $rawPayment['txn_id'] ?? ($paymentResponse['txn_id'] ?? null),
             'project' => $rawPayment['project'] ?? null,
             'order_id' => $rawPayment['order_id'] ?? $transaction->invoice,
             'amount' => (int) ($rawPayment['amount'] ?? $transaction->grand_total),
@@ -1195,6 +1198,8 @@ class PublicTableOrderController extends Controller
             'total_payment' => (int) ($rawPayment['total_payment'] ?? $transaction->grand_total),
             'payment_method' => $resolvedMethod,
             'payment_number' => $paymentNumber,
+            'qr_string' => $rawPayment['qr_string'] ?? ($resolvedMethod === 'qris' ? $paymentNumber : null),
+            'va_number' => $rawPayment['va_number'] ?? ($resolvedMethod !== 'qris' ? $paymentNumber : null),
             'expired_at' => $expiredAt,
         ];
     }

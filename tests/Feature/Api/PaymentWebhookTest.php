@@ -139,6 +139,114 @@ class PaymentWebhookTest extends TestCase
         });
     }
 
+    public function test_pakasir_webhook_updates_transaction_status_successfully_with_valid_secret(): void
+    {
+        PaymentSetting::create([
+            'default_gateway' => 'pakasir',
+            'pakasir_enabled' => true,
+            'pakasir_project_slug' => 'test-project',
+            'pakasir_api_key' => 'test-api-key',
+            'pakasir_webhook_secret' => 'valid-secret-123',
+            'pakasir_method' => 'qris',
+        ]);
+
+        $transaction = $this->createPendingTransaction('pakasir');
+
+        $response = $this->withHeader('X-Secret', 'valid-secret-123')
+            ->postJson(route('webhooks.pakasir'), [
+                'txn_id' => 'pakasir-tx-001',
+                'order_id' => $transaction->invoice,
+                'amount' => 150000,
+                'status' => 'completed',
+                'completed_at' => now()->toIso8601String(),
+            ]);
+
+        $response->assertOk()->assertJson(['status' => 'success']);
+        $transaction->refresh();
+
+        $this->assertSame('paid', $transaction->payment_status);
+        $this->assertSame('pakasir-tx-001', $transaction->payment_reference);
+    }
+
+    public function test_pakasir_webhook_rejects_invalid_secret(): void
+    {
+        Log::spy();
+
+        PaymentSetting::create([
+            'default_gateway' => 'pakasir',
+            'pakasir_enabled' => true,
+            'pakasir_project_slug' => 'test-project',
+            'pakasir_api_key' => 'test-api-key',
+            'pakasir_webhook_secret' => 'valid-secret-123',
+            'pakasir_method' => 'qris',
+        ]);
+
+        $transaction = $this->createPendingTransaction('pakasir');
+
+        $response = $this->withHeader('X-Secret', 'wrong-secret')
+            ->postJson(route('webhooks.pakasir'), [
+                'txn_id' => 'pakasir-tx-001',
+                'order_id' => $transaction->invoice,
+                'amount' => 150000,
+                'status' => 'completed',
+            ]);
+
+        $response->assertForbidden();
+        $this->assertSame('pending', $transaction->fresh()->payment_status);
+        Log::shouldHaveReceived('warning', function ($message, $context = []) {
+            return $message === 'Pakasir Webhook: Invalid secret'
+                && ($context['verification_result'] ?? null) === 'invalid';
+        });
+    }
+
+    public function test_pakasir_webhook_accepts_when_no_secret_configured(): void
+    {
+        PaymentSetting::create([
+            'default_gateway' => 'pakasir',
+            'pakasir_enabled' => true,
+            'pakasir_project_slug' => 'test-project',
+            'pakasir_api_key' => 'test-api-key',
+            'pakasir_method' => 'qris',
+        ]);
+
+        $transaction = $this->createPendingTransaction('pakasir');
+
+        $response = $this->postJson(route('webhooks.pakasir'), [
+            'txn_id' => 'pakasir-tx-001',
+            'order_id' => $transaction->invoice,
+            'amount' => 150000,
+            'status' => 'completed',
+        ]);
+
+        $response->assertOk()->assertJson(['status' => 'success']);
+        $this->assertSame('paid', $transaction->fresh()->payment_status);
+    }
+
+    public function test_pakasir_webhook_finds_transaction_by_txn_id(): void
+    {
+        PaymentSetting::create([
+            'default_gateway' => 'pakasir',
+            'pakasir_enabled' => true,
+            'pakasir_project_slug' => 'test-project',
+            'pakasir_api_key' => 'test-api-key',
+            'pakasir_webhook_secret' => 'valid-secret-123',
+            'pakasir_method' => 'qris',
+        ]);
+
+        $transaction = $this->createPendingTransaction('pakasir');
+        $transaction->update(['payment_reference' => 'pakasir-tx-999']);
+
+        $response = $this->withHeader('X-Secret', 'valid-secret-123')
+            ->postJson(route('webhooks.pakasir'), [
+                'txn_id' => 'pakasir-tx-999',
+                'amount' => 150000,
+                'status' => 'completed',
+            ]);
+
+        $response->assertOk()->assertJson(['status' => 'success']);
+        $this->assertSame('paid', $transaction->fresh()->payment_status);
+    }
+
     private function createPendingTransaction(string $paymentMethod): Transaction
     {
         return Transaction::create([

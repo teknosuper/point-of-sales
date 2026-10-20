@@ -5,22 +5,37 @@ namespace App\Services\Payments;
 use App\Exceptions\PaymentGatewayException;
 use App\Models\Transaction;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
 
 class PakasirGateway
 {
+    public const API_BASE_URL = 'https://app.pakasir.com/api/v2';
+
+    public const PAY_BASE_URL = 'https://app.pakasir.com/pay-v2';
+
     public function createTransaction(Transaction $transaction, array $config): array
     {
         if (! ($config['enabled'] ?? false)) {
             throw new PaymentGatewayException('Pakasir tidak aktif atau belum dikonfigurasi.');
         }
 
+        $projectSlug = (string) ($config['project_slug'] ?? '');
+        $apiKey = (string) ($config['api_key'] ?? '');
+
+        if (blank($projectSlug) || blank($apiKey)) {
+            throw new PaymentGatewayException('Konfigurasi Pakasir (project slug atau API key) belum lengkap.');
+        }
+
         $method = strtolower((string) ($config['method'] ?? 'qris'));
-        $response = Http::post("https://app.pakasir.com/api/transactioncreate/{$method}", [
-            'project' => $config['project_slug'],
-            'order_id' => $transaction->invoice,
-            'amount' => (int) $transaction->grand_total,
-            'api_key' => $config['api_key'],
+        $orderId = (string) $transaction->invoice;
+        $amount = (int) $transaction->grand_total;
+
+        $response = Http::withHeaders([
+            'X-Api-Key' => $apiKey,
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json',
+        ])->post(self::API_BASE_URL."/create-transaction/{$projectSlug}/{$orderId}", [
+            'method' => $method,
+            'amount' => $amount,
         ]);
 
         if ($response->failed()) {
@@ -29,27 +44,37 @@ class PakasirGateway
             );
         }
 
-        $payment = $response->json('payment', []);
-        $accessToken = $transaction->tableOrder?->access_token;
-        $paymentUrl = 'https://app.pakasir.com/pay/'
-            .rawurlencode((string) $config['project_slug'])
-            .'/'.(int) $transaction->grand_total
-            .'?order_id='.rawurlencode((string) $transaction->invoice);
+        $data = $response->json();
+        $txnId = $data['txn_id'] ?? null;
 
-        if (filled($accessToken)) {
-            $paymentUrl .= '&redirect='.rawurlencode(route('table-order.status', $accessToken));
+        // Payment link resolution:
+        // If API returned payment_link directly (method = payment_link), use it.
+        // Otherwise, construct v2 pay URL: https://app.pakasir.com/pay-v2/{txn_id}
+        $paymentUrl = $data['payment_link'] ?? null;
+        if (blank($paymentUrl) && filled($txnId)) {
+            $paymentUrl = self::PAY_BASE_URL."/{$txnId}";
+            if ($method === 'qris') {
+                $paymentUrl .= '?qris_only=1';
+            }
         }
 
-        if (Str::lower((string) $method) === 'qris') {
-            $paymentUrl .= '&qris_only=1';
+        // QR string or VA number resolution for backward compatibility with frontend
+        $paymentNumber = null;
+        if (filled($data['qr_string'] ?? null)) {
+            $paymentNumber = $data['qr_string'];
+        } elseif (filled($data['va_number'] ?? null)) {
+            $paymentNumber = $data['va_number'];
+        } elseif (filled($data['payment_number'] ?? null)) {
+            $paymentNumber = $data['payment_number'];
         }
 
         return [
-            'reference' => $payment['order_id'] ?? $transaction->invoice,
+            'reference' => $txnId ?: $orderId,
+            'txn_id' => $txnId,
             'payment_url' => $paymentUrl,
-            'payment_number' => $payment['payment_number'] ?? null,
-            'expired_at' => $payment['expired_at'] ?? null,
-            'raw' => $response->json(),
+            'payment_number' => $paymentNumber,
+            'expired_at' => $data['expired_at'] ?? null,
+            'raw' => $data,
         ];
     }
 
@@ -59,12 +84,45 @@ class PakasirGateway
             throw new PaymentGatewayException('Pakasir tidak aktif atau belum dikonfigurasi.');
         }
 
-        $response = Http::get('https://app.pakasir.com/api/transactiondetail', [
-            'project' => $config['project_slug'],
-            'amount' => (int) $transaction->grand_total,
-            'order_id' => $transaction->invoice,
-            'api_key' => $config['api_key'],
-        ]);
+        $projectSlug = (string) ($config['project_slug'] ?? '');
+        $apiKey = (string) ($config['api_key'] ?? '');
+
+        if (blank($projectSlug) || blank($apiKey)) {
+            throw new PaymentGatewayException('Konfigurasi Pakasir (project slug atau API key) belum lengkap.');
+        }
+
+        // Try to obtain txn_id from payment_payload or payment_reference
+        $txnId = data_get($transaction->payment_payload, 'txn_id');
+        if (blank($txnId) && filled($transaction->payment_reference) && $transaction->payment_reference !== $transaction->invoice) {
+            $txnId = $transaction->payment_reference;
+        }
+
+        // If txn_id is still not available, call create-transaction to resolve txn_id (v2 create-transaction is idempotent find-or-create)
+        if (blank($txnId)) {
+            $method = strtolower((string) ($config['method'] ?? 'qris'));
+            $createResponse = Http::withHeaders([
+                'X-Api-Key' => $apiKey,
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+            ])->post(self::API_BASE_URL."/create-transaction/{$projectSlug}/{$transaction->invoice}", [
+                'method' => $method,
+                'amount' => (int) $transaction->grand_total,
+            ]);
+
+            if ($createResponse->successful()) {
+                $txnId = $createResponse->json('txn_id');
+            }
+        }
+
+        if (blank($txnId)) {
+            throw new PaymentGatewayException('ID Transaksi Pakasir (txn_id) tidak ditemukan.');
+        }
+
+        $response = Http::withHeaders([
+            'X-Api-Key' => $apiKey,
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json',
+        ])->get(self::API_BASE_URL."/transaction-status/{$projectSlug}/{$txnId}");
 
         if ($response->failed()) {
             throw new PaymentGatewayException(
@@ -72,6 +130,6 @@ class PakasirGateway
             );
         }
 
-        return $response->json('transaction', []);
+        return $response->json() ?? [];
     }
 }

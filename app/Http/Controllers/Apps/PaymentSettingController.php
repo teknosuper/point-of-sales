@@ -138,17 +138,23 @@ class PaymentSettingController extends Controller
             'pakasir_enabled' => ['boolean'],
             'pakasir_project_slug' => ['nullable', 'string', 'max:255'],
             'pakasir_api_key' => ['nullable', 'string'],
+            'pakasir_webhook_secret' => ['nullable', 'string'],
             'pakasir_method' => ['nullable', Rule::in([
-                'cimb_niaga_va',
-                'bni_va',
+                'payment_link',
                 'qris',
-                'sampoerna_va',
-                'bnc_va',
+                'bri_va',
+                'bni_va',
+                'cimb_niaga_va',
+                'danamon_va',
                 'maybank_va',
+                'bnc_va',
+                'bsi_va',
+                'muamalat_va',
+                'ocbc_va',
+                'sampoerna_va',
                 'permata_va',
                 'atm_bersama_va',
                 'artha_graha_va',
-                'bri_va',
             ])],
             'pakasir_fee_percentage' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'pakasir_fee_fixed' => ['nullable', 'integer', 'min:0', 'max:1000000'],
@@ -173,6 +179,9 @@ class PaymentSettingController extends Controller
         $resolvedPakasirApiKey = $setting->secretManagedByEnvironment('pakasir_api_key')
             ? $setting->resolvedSecret('pakasir_api_key')
             : ($data['pakasir_api_key'] ?: $setting->getAttributeValue('pakasir_api_key'));
+        $resolvedPakasirWebhookSecret = $setting->secretManagedByEnvironment('pakasir_webhook_secret')
+            ? $setting->resolvedSecret('pakasir_webhook_secret')
+            : ($data['pakasir_webhook_secret'] ?: $setting->getAttributeValue('pakasir_webhook_secret'));
 
         if ($midtransEnabled && (blank($resolvedMidtransServerKey) || empty($data['midtrans_client_key']))) {
             return back()->withErrors([
@@ -265,6 +274,9 @@ class PaymentSettingController extends Controller
             'pakasir_api_key' => $setting->secretManagedByEnvironment('pakasir_api_key')
                 ? $setting->getRawOriginal('pakasir_api_key')
                 : ($data['pakasir_api_key'] ?: $setting->getAttributeValue('pakasir_api_key')),
+            'pakasir_webhook_secret' => $setting->secretManagedByEnvironment('pakasir_webhook_secret')
+                ? $setting->getRawOriginal('pakasir_webhook_secret')
+                : ($data['pakasir_webhook_secret'] ?: $setting->getAttributeValue('pakasir_webhook_secret')),
             'pakasir_method' => $data['pakasir_method'] ?: 'qris',
             'pakasir_fee_percentage' => (float) ($data['pakasir_fee_percentage'] ?? 0),
             'pakasir_fee_fixed' => (int) ($data['pakasir_fee_fixed'] ?? 0),

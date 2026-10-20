@@ -26,6 +26,7 @@ class PaymentSetting extends Model
         'xendit_secret_key',
         'xendit_callback_token',
         'pakasir_api_key',
+        'pakasir_webhook_secret',
     ];
 
     private static ?bool $hasPakasirColumns = null;
@@ -46,6 +47,7 @@ class PaymentSetting extends Model
         'pakasir_enabled',
         'pakasir_project_slug',
         'pakasir_api_key',
+        'pakasir_webhook_secret',
         'pakasir_method',
         'pakasir_fee_percentage',
         'pakasir_fee_fixed',
@@ -68,6 +70,7 @@ class PaymentSetting extends Model
         'xendit_secret_key' => 'encrypted',
         'xendit_callback_token' => 'encrypted',
         'pakasir_api_key' => 'encrypted',
+        'pakasir_webhook_secret' => 'encrypted',
     ];
 
     public static function resolveForOutlet(?int $outletId = null): ?self
@@ -309,6 +312,7 @@ class PaymentSetting extends Model
             'xendit_secret_key' => $this->secretMetadata('xendit_secret_key'),
             'xendit_callback_token' => $this->secretMetadata('xendit_callback_token'),
             'pakasir_api_key' => $this->secretMetadata('pakasir_api_key'),
+            'pakasir_webhook_secret' => $this->secretMetadata('pakasir_webhook_secret'),
         ];
     }
 
@@ -329,6 +333,7 @@ class PaymentSetting extends Model
             'xendit_secret_key' => config('services.xendit.secret_key'),
             'xendit_callback_token' => config('services.xendit.callback_token'),
             'pakasir_api_key' => config('services.pakasir.api_key'),
+            'pakasir_webhook_secret' => config('services.pakasir.webhook_secret'),
             default => null,
         };
     }

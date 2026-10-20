@@ -355,6 +355,7 @@ export default function Status({
                 isPakasirQris={isPakasirQris}
                 pakasirQrImageUrl={pakasirQrImageUrl}
                 pakasirPaymentNumber={pakasirPaymentNumber}
+                pakasirPaymentUrl={order.transaction?.payment_url}
                 pakasirExpiresAt={pakasirExpiresAt}
                 grandTotal={order.grand_total}
                 onCopyText={copyText}

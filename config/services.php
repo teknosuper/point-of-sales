@@ -39,6 +39,8 @@ return [
 
     'pakasir' => [
         'api_key' => env('PAKASIR_API_KEY'),
+        'webhook_secret' => env('PAKASIR_WEBHOOK_SECRET'),
+        'project_slug' => env('PAKASIR_PROJECT_SLUG'),
     ],
 
     'print_bridge' => [

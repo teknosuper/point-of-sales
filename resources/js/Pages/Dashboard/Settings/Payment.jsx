@@ -47,6 +47,7 @@ export default function Payment({
         pakasir_enabled: setting?.pakasir_enabled ?? false,
         pakasir_project_slug: setting?.pakasir_project_slug ?? "",
         pakasir_api_key: "",
+        pakasir_webhook_secret: "",
         pakasir_method: setting?.pakasir_method ?? "qris",
         pakasir_fee_percentage: setting?.pakasir_fee_percentage ?? 0,
         pakasir_fee_fixed: setting?.pakasir_fee_fixed ?? 0,
@@ -244,17 +245,24 @@ export default function Payment({
                         </label>
                     </div>
                     <div className={`space-y-4 ${!data.pakasir_enabled ? "opacity-50 pointer-events-none" : ""}`}>
-                        <div className="grid gap-4 md:grid-cols-2">
+                        <div className="grid gap-4 md:grid-cols-3">
                             <Input label="Project Slug" type="text" value={data.pakasir_project_slug} onChange={(e) => setData("pakasir_project_slug", e.target.value)} errors={errors?.pakasir_project_slug} placeholder="depodomain" disabled={!canUpdatePaymentSettings} hintText="Slug proyek dari dashboard Pakasir." />
                             <Input label="API Key" type="password" value={data.pakasir_api_key} onChange={(e) => setData("pakasir_api_key", e.target.value)} errors={errors?.pakasir_api_key}
                                 placeholder={paymentSettingSources?.pakasir_api_key?.configured ? "Kosongkan untuk mempertahankan nilai saat ini" : "pakasir-api-key"}
                                 disabled={!canUpdatePaymentSettings || paymentSettingSources?.pakasir_api_key?.managed_by_environment}
-                                hintText="API key dari detail proyek Pakasir." />
+                                hintText="API key dari detail integrasi Pakasir." />
+                            <Input label="Webhook Secret (v2)" type="password" value={data.pakasir_webhook_secret} onChange={(e) => setData("pakasir_webhook_secret", e.target.value)} errors={errors?.pakasir_webhook_secret}
+                                placeholder={paymentSettingSources?.pakasir_webhook_secret?.configured ? "Kosongkan untuk mempertahankan nilai saat ini" : "pakasir-webhook-secret"}
+                                disabled={!canUpdatePaymentSettings || paymentSettingSources?.pakasir_webhook_secret?.managed_by_environment}
+                                hintText="Webhook Secret dari detail integrasi Pakasir." />
                         </div>
-                        {renderSecretHint("pakasir_api_key", "Isi ulang hanya jika ingin mengganti API key.")}
+                        <div className="flex flex-wrap gap-4">
+                            {renderSecretHint("pakasir_api_key", "Isi ulang hanya jika ingin mengganti API key.")}
+                            {renderSecretHint("pakasir_webhook_secret", "Isi ulang hanya jika ingin mengganti Webhook Secret.")}
+                        </div>
                         <div>
                             <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                Metode Pakasir
+                                Metode Pakasir (v2)
                             </label>
                             <select
                                 value={data.pakasir_method}
@@ -262,16 +270,17 @@ export default function Payment({
                                 disabled={!canUpdatePaymentSettings}
                                 className="w-full h-11 px-4 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all"
                             >
-                                <option value="qris">QRIS</option>
-                                <option value="bni_va">BNI VA</option>
-                                <option value="bri_va">BRI VA</option>
-                                <option value="permata_va">Permata VA</option>
-                                <option value="maybank_va">Maybank VA</option>
-                                <option value="cimb_niaga_va">CIMB Niaga VA</option>
-                                <option value="sampoerna_va">Sampoerna VA</option>
-                                <option value="bnc_va">BNC VA</option>
-                                <option value="atm_bersama_va">ATM Bersama VA</option>
-                                <option value="artha_graha_va">Artha Graha VA</option>
+                                <option value="payment_link">Payment Link (Multi-metode / Checkout Halaman Pakasir)</option>
+                                <option value="qris">QRIS Dinamis</option>
+                                <option value="bri_va">BRI Virtual Account</option>
+                                <option value="bni_va">BNI Virtual Account</option>
+                                <option value="cimb_niaga_va">CIMB Niaga Virtual Account</option>
+                                <option value="danamon_va">Danamon Virtual Account</option>
+                                <option value="maybank_va">Maybank Virtual Account</option>
+                                <option value="bnc_va">BNC (Bank Neo) Virtual Account</option>
+                                <option value="bsi_va">BSI Virtual Account</option>
+                                <option value="muamalat_va">Muamalat Virtual Account</option>
+                                <option value="ocbc_va">OCBC Virtual Account</option>
                             </select>
                             {errors?.pakasir_method && (
                                 <small className="text-xs text-danger-500 mt-1">{errors.pakasir_method}</small>

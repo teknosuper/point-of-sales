@@ -206,21 +206,55 @@ class PaymentWebhookController extends Controller
     {
         try {
             $orderId = $request->input('order_id');
-            $transaction = Transaction::where('invoice', $orderId)->first();
+            $txnId = $request->input('txn_id');
+
+            if (blank($orderId) && blank($txnId)) {
+                return response()->json(['status' => 'error', 'message' => 'Invalid payload: order_id or txn_id required'], 422);
+            }
+
+            if (blank($request->input('status'))) {
+                return response()->json(['status' => 'error', 'message' => 'Invalid payload: status required'], 422);
+            }
+
+            $transaction = null;
+            if (filled($orderId)) {
+                $transaction = Transaction::where('invoice', $orderId)->first();
+            }
+            if (! $transaction && filled($txnId)) {
+                $transaction = Transaction::where('payment_reference', $txnId)->first();
+            }
+
             $paymentSetting = PaymentSetting::resolveForOutlet($transaction?->outlet_id);
 
             if (! $paymentSetting || ! $paymentSetting->pakasir_enabled) {
                 return response()->json(['status' => 'error', 'message' => 'Pakasir not configured'], 400);
             }
 
-            if (blank($orderId) || blank($request->input('status'))) {
-                return response()->json(['status' => 'error', 'message' => 'Invalid payload'], 422);
+            // Verify secret header/token (Pakasir API v2)
+            $expectedSecret = $paymentSetting->resolvedSecret('pakasir_webhook_secret')
+                ?? config('services.pakasir.webhook_secret');
+            $receivedSecret = $request->header('X-Secret')
+                ?? $request->input('webhook_secret')
+                ?? $request->input('secret');
+
+            if (filled($expectedSecret)) {
+                if (blank($receivedSecret) || ! hash_equals((string) $expectedSecret, (string) $receivedSecret)) {
+                    Log::warning('Pakasir Webhook: Invalid secret', [
+                        'provider' => 'pakasir',
+                        'order_id' => $orderId,
+                        'txn_id' => $txnId,
+                        'verification_result' => 'invalid',
+                    ]);
+
+                    return response()->json(['status' => 'error', 'message' => 'Invalid webhook secret'], 403);
+                }
             }
 
             if (! $transaction) {
                 Log::warning('Pakasir Webhook: Transaction not found', [
                     'provider' => 'pakasir',
                     'order_id' => $orderId,
+                    'txn_id' => $txnId,
                     'verification_result' => 'accepted',
                     'error_category' => 'transaction_not_found',
                 ]);
@@ -233,7 +267,7 @@ class PaymentWebhookController extends Controller
 
             $transaction->update([
                 'payment_status' => $newStatus,
-                'payment_reference' => $request->input('order_id') ?: $transaction->payment_reference,
+                'payment_reference' => $txnId ?: ($orderId ?: $transaction->payment_reference),
             ]);
 
             if ($newStatus === 'paid' && $previousStatus !== 'paid') {
@@ -243,6 +277,7 @@ class PaymentWebhookController extends Controller
             Log::info('Pakasir Webhook: Transaction updated', [
                 'provider' => 'pakasir',
                 'order_id' => $orderId,
+                'txn_id' => $txnId,
                 'payment_method' => $request->input('payment_method'),
                 'normalized_status' => $newStatus,
                 'verification_result' => 'accepted',
