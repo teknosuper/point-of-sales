@@ -161,15 +161,27 @@ export default function ModifierOptionsModal({
                 (maxSelect === null || selectedCount <= maxSelect),
         };
     });
+    const hasAnyConfiguredRequiredGroup = modifierGroups.some((group) => {
+        const mode = String(group.selection_mode || "optional").trim();
+        const min = Number(group.min_select ?? 0);
+        return mode === "single" || min > 0;
+    });
+    const hasAnyAvailableRequiredGroup = groupValidation.some(
+        (group) => group.minSelect > 0
+    );
+    const effectiveRequiresSelection =
+        requiresSelection &&
+        (!hasAnyConfiguredRequiredGroup || hasAnyAvailableRequiredGroup);
+
     const selectionIsRequired =
         hasSelectableModifierOptions &&
-        (requiresSelection || groupValidation.some((group) => group.minSelect > 0));
+        (effectiveRequiresSelection || hasAnyAvailableRequiredGroup);
     const selectableSelectedCount = selectableModifierOptions.filter((option) =>
         selectedOptionIdSet.has(Number(option.id || 0))
     ).length;
     const hasSatisfiedRequiredSelection =
         groupValidation.every((group) => group.isValid) &&
-        (!requiresSelection || selectableSelectedCount > 0);
+        (!effectiveRequiresSelection || !hasSelectableModifierOptions || selectableSelectedCount > 0);
     const modifierStatus = hasSelectableModifierOptions
         ? selectionIsRequired
             ? {
@@ -271,7 +283,7 @@ export default function ModifierOptionsModal({
 
     const handleNextToToping = () => {
         setToppingAlert(false);
-        setStep(hasSelectableModifierOptions ? "topping" : "notes");
+        setStep(applicableModifierOptions.length > 0 ? "topping" : "notes");
     };
 
     const handleBackToJenis = () => {
@@ -363,8 +375,13 @@ export default function ModifierOptionsModal({
                             </div>
                         </section>
 
-                        {hasSelectableModifierOptions ? (
+                        {applicableModifierOptions.length > 0 ? (
                             <section ref={toppingSectionRef} className="space-y-4">
+                                {!hasSelectableModifierOptions ? (
+                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
+                                        Semua pilihan topping saat ini sedang habis. Anda tetap dapat memesan menu ini tanpa topping.
+                                    </div>
+                                ) : null}
                                 {groupValidation.map((group) => (
                                     <div key={group.group_name}>
                                         <div className="mb-2 flex items-center justify-between gap-3">
@@ -381,11 +398,11 @@ export default function ModifierOptionsModal({
                                         </div>
                                         <div className="space-y-2">
                                             {group.options.map((option) => {
-                                                const active = selectedOptionIdSet.has(
-                                                    Number(option.id || 0)
-                                                );
                                                 const isOutOfStock =
                                                     !isModifierOptionAvailable(option, quantity);
+                                                const active = !isOutOfStock && selectedOptionIdSet.has(
+                                                    Number(option.id || 0)
+                                                );
 
                                                 return (
                                                     <button
@@ -859,8 +876,13 @@ export default function ModifierOptionsModal({
                         </div>
                     ) : null}
 
-                    {hasSelectableModifierOptions && step === "topping" ? (
+                    {applicableModifierOptions.length > 0 && step === "topping" ? (
                         <div ref={toppingSectionRef} className="space-y-3 px-5 py-4">
+                            {!hasSelectableModifierOptions ? (
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
+                                    Semua pilihan topping saat ini sedang habis. Anda tetap dapat melanjutkan pesanan tanpa topping.
+                                </div>
+                            ) : null}
                             {groupValidation.map((group) => (
                                 <div
                                     key={group.group_name}
@@ -902,12 +924,13 @@ export default function ModifierOptionsModal({
                                     </div>
                                     <div className="space-y-2 p-3">
                                         {group.options.map((option) => {
+                                            const isOutOfStock =
+                                                !isModifierOptionAvailable(option, quantity);
                                             const active =
+                                                !isOutOfStock &&
                                                 selectedOptionIdSet.has(
                                                     Number(option.id || 0)
                                                 );
-                                            const isOutOfStock =
-                                                !isModifierOptionAvailable(option, quantity);
 
                                             return (
                                                 <button
@@ -1085,7 +1108,7 @@ export default function ModifierOptionsModal({
                                 disabled={isSubmitting}
                                 className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
                             >
-                                {hasSelectableModifierOptions
+                                {applicableModifierOptions.length > 0
                                     ? "Lanjut ke Topping"
                                     : "Lanjut ke Keterangan"}
                             </button>

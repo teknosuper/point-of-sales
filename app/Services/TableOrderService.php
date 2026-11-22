@@ -181,7 +181,21 @@ class TableOrderService
             ->groupBy('product_id')
             ->map(fn (Collection $group) => (int) $group->sum('qty'));
 
-        $orderItems = $items->map(function (array $item, int $index) use ($products, $modifierOptions, $table, $requestedQtyByProduct) {
+        $requestedQtyByModifier = collect();
+        foreach ($items as $item) {
+            $qty = max(1, (int) ($item['qty'] ?? 1));
+            foreach (($item['modifier_ids'] ?? []) as $modId) {
+                $modId = (int) $modId;
+                if ($modId > 0) {
+                    $requestedQtyByModifier->put(
+                        $modId,
+                        ((int) $requestedQtyByModifier->get($modId, 0)) + $qty
+                    );
+                }
+            }
+        }
+
+        $orderItems = $items->map(function (array $item, int $index) use ($products, $modifierOptions, $table, $requestedQtyByProduct, $requestedQtyByModifier) {
             /** @var Product|null $product */
             $product = $products->get($item['product_id']);
             if (! $product) {
@@ -206,7 +220,7 @@ class TableOrderService
             $selectableModifierOptions = $productModifierOptions
                 ->filter(fn (ProductModifierOption $option) => $this->modifierOptionIsAvailable(
                     $option,
-                    (int) $item['qty'],
+                    (int) ($requestedQtyByModifier->get($option->id) ?? $item['qty']),
                     (string) ($item['order_type'] ?? 'dine_in')
                 ));
             $selectedModifiers = $selectableModifierOptions
@@ -590,7 +604,21 @@ class TableOrderService
             ->groupBy('product_id')
             ->map(fn (Collection $group) => (int) $group->sum('qty'));
 
-        $orderItems = $validatedItems->map(function (array $item, int $index) use ($products, $modifierOptions, $tableOrder, $requestedQtyByProduct, $currentReservedQtyByProduct) {
+        $requestedQtyByModifier = collect();
+        foreach ($validatedItems as $item) {
+            $qty = max(1, (int) ($item['qty'] ?? 1));
+            foreach (($item['modifier_ids'] ?? []) as $modId) {
+                $modId = (int) $modId;
+                if ($modId > 0) {
+                    $requestedQtyByModifier->put(
+                        $modId,
+                        ((int) $requestedQtyByModifier->get($modId, 0)) + $qty
+                    );
+                }
+            }
+        }
+
+        $orderItems = $validatedItems->map(function (array $item, int $index) use ($products, $modifierOptions, $tableOrder, $requestedQtyByProduct, $currentReservedQtyByProduct, $requestedQtyByModifier) {
             $product = $products->get($item['product_id']);
             if (! $product) {
                 throw ValidationException::withMessages([
@@ -615,7 +643,7 @@ class TableOrderService
             $selectableModifierOptions = $productModifierOptions
                 ->filter(fn (ProductModifierOption $option) => $this->modifierOptionIsAvailable(
                     $option,
-                    (int) $item['qty'],
+                    (int) ($requestedQtyByModifier->get($option->id) ?? $item['qty']),
                     (string) ($item['order_type'] ?? 'dine_in')
                 ));
             $selectedModifiers = $selectableModifierOptions
@@ -1126,6 +1154,15 @@ class TableOrderService
                     'markup_price' => (int) ($modifier->markup_price ?? 0),
                     'total_price' => (int) $modifier->total_price,
                 ]);
+
+                // Decrement modifier stock if tracked (stock > 0 only; NULL = unlimited)
+                $modifierOptionId = (int) ($modifier->product_modifier_option_id ?? 0);
+                if ($modifierOptionId > 0) {
+                    \DB::table('product_modifier_options')
+                        ->where('id', $modifierOptionId)
+                        ->where('stock', '>', 0)
+                        ->update(['stock' => \DB::raw('GREATEST(0, stock - '.(int) $modifier->qty.')')]);
+                }
             }
 
             $transaction->profits()->create([
@@ -1145,8 +1182,25 @@ class TableOrderService
         string $orderType = 'dine_in',
         int $quantity = 1
     ): void {
-        $groupedOptions = $productModifierOptions
+        $applicableOptions = $productModifierOptions
             ->where('is_active', true)
+            ->filter(fn (ProductModifierOption $option) => $option->appliesTo($orderType));
+
+        $configuredGroups = $applicableOptions->groupBy(function (ProductModifierOption $option) {
+            $groupName = trim((string) ($option->group_name ?? ''));
+
+            return $groupName !== '' ? $groupName : 'Topping';
+        });
+
+        $hasAnyConfiguredRequiredGroup = $configuredGroups->contains(function ($options) {
+            $first = $options->first();
+            $mode = trim((string) ($first->selection_mode ?? 'optional')) ?: 'optional';
+            $min = (int) ($first->min_select ?? 0);
+
+            return $mode === 'single' || $min > 0;
+        });
+
+        $groupedOptions = $applicableOptions
             ->filter(fn (ProductModifierOption $option) => $this->modifierOptionIsAvailable(
                 $option,
                 $quantity,
@@ -1157,6 +1211,8 @@ class TableOrderService
 
                 return $groupName !== '' ? $groupName : 'Topping';
             });
+
+        $hasAnyAvailableRequiredGroup = false;
 
         foreach ($groupedOptions as $groupName => $options) {
             $firstOption = $options->first();
@@ -1169,6 +1225,9 @@ class TableOrderService
                 )
             );
             $maxSelectRaw = (int) ($firstOption->max_select ?? 0);
+            if ($minSelect > 0) {
+                $hasAnyAvailableRequiredGroup = true;
+            }
             $maxSelect = $selectionMode === 'single'
                 ? 1
                 : ($maxSelectRaw > 0 ? $maxSelectRaw : null);
@@ -1193,8 +1252,11 @@ class TableOrderService
             }
         }
 
+        $effectiveRequiresSelection = (bool) $product->requires_modifier_selection
+            && (! $hasAnyConfiguredRequiredGroup || $hasAnyAvailableRequiredGroup);
+
         if ($groupedOptions->isNotEmpty()
-            && (bool) $product->requires_modifier_selection
+            && $effectiveRequiresSelection
             && $selectedModifiers->isEmpty()) {
             throw ValidationException::withMessages([
                 $errorKey => "Produk {$product->title} wajib memilih minimal satu topping.",

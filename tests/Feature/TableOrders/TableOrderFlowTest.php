@@ -97,10 +97,9 @@ class TableOrderFlowTest extends TestCase
             'dining_table_id' => $table->id,
             'customer_id' => $customer->id,
             'customer_name' => 'Budi',
-            'customer_phone' => '08123456789',
             'customer_email' => 'budi@example.com',
             'status' => 'pending_cashier_payment',
-            'grand_total' => 60000,
+            'grand_total' => 70000,
         ]);
 
         $this->assertDatabaseHas('table_order_item_modifiers', [
@@ -437,7 +436,11 @@ class TableOrderFlowTest extends TestCase
 
         $this->withSession(['active_outlet_id' => $outlet->id])
             ->actingAs($cashier)
-            ->post(route('table-orders.approve', $order))
+            ->post(route('table-orders.approve', $order), [
+                'payment_method' => 'cash',
+                'cash' => (int) $order->grand_total,
+                'redirect_to' => 'list',
+            ])
             ->assertRedirect(route('table-orders.index'));
 
         $order->refresh();

@@ -73,6 +73,7 @@ import {
 } from "./utils/swalHelpers";
 
 // Lazy-loaded modals — dimuat hanya saat pertama kali dibuka
+import { isModifierOptionAvailable, appliesToOrderType } from "@/Pages/Public/TableOrder/utils/tableOrderHelpers";
 const ModifierOptionsModal = lazy(() => import("@/Components/POS/ModifierOptionsModal"));
 import CartLineItem from "@/Components/POS/CartLineItem";
 const NumpadModal = lazy(() => import("@/Components/POS/NumpadModal"));
@@ -491,14 +492,30 @@ export default function Index({
     const modifierModalSelectedModifierTotal = useMemo(
         () =>
             (modifierModalProduct?.modifier_options || [])
-                .filter((option) => selectedModifierOptionIds.includes(option.id))
+                .filter(
+                    (option) =>
+                        appliesToOrderType(option, modifierModalOrderType || orderType) &&
+                        isModifierOptionAvailable(option, modifierModalQuantity) &&
+                        selectedModifierOptionIds.includes(option.id)
+                )
                 .reduce((sum, option) => sum + Number(option.price || 0), 0),
-        [modifierModalProduct, selectedModifierOptionIds]
+        [
+            modifierModalProduct,
+            modifierModalOrderType,
+            orderType,
+            modifierModalQuantity,
+            selectedModifierOptionIds,
+        ]
     );
     const modifierModalSelectedModifiers = useMemo(
         () =>
             (modifierModalProduct?.modifier_options || [])
-                .filter((option) => selectedModifierOptionIds.includes(option.id))
+                .filter(
+                    (option) =>
+                        appliesToOrderType(option, modifierModalOrderType || orderType) &&
+                        isModifierOptionAvailable(option, modifierModalQuantity) &&
+                        selectedModifierOptionIds.includes(option.id)
+                )
                 .map((option) => {
                     const unitPrice = Math.max(0, Number(option.price || 0));
 
@@ -510,7 +527,13 @@ export default function Index({
                         total_price: unitPrice,
                     };
                 }),
-        [modifierModalProduct, selectedModifierOptionIds]
+        [
+            modifierModalProduct,
+            modifierModalOrderType,
+            orderType,
+            modifierModalQuantity,
+            selectedModifierOptionIds,
+        ]
     );
     const modifierModalPricingLine = useMemo(() => {
         if (!modifierModalProduct?.id) {
@@ -3632,58 +3655,87 @@ export default function Index({
                 return;
             }
 
-            const modifierOptions = (modifierModalProduct.modifier_options || []).filter(
-                (option) => {
-                    const scope = String(option?.order_type_scope || "").trim();
-
-                    if (!scope || scope === "both") {
-                        return true;
-                    }
-
-                    return scope === modifierModalOrderType;
-                }
+            const applicableOptions = (
+                modifierModalProduct.modifier_options || []
+            ).filter((option) =>
+                appliesToOrderType(option, modifierModalOrderType)
+            );
+            const selectableOptions = applicableOptions.filter((option) =>
+                isModifierOptionAvailable(option, modifierModalQuantity)
             );
             const selectedOptionIdSet = new Set(
                 selectedModifierOptionIds.map((id) => Number(id || 0))
             );
-            const groupedOptions = modifierOptions.reduce((groups, option) => {
-                const groupName = normalizeModifierGroupName(option?.group_name);
-
-                if (!groups.has(groupName)) {
-                    groups.set(groupName, []);
-                }
-
-                groups.get(groupName).push(option);
-
-                return groups;
-            }, new Map());
+            const selectableSelectedCount = selectableOptions.filter((option) =>
+                selectedOptionIdSet.has(Number(option.id || 0))
+            ).length;
 
             if (includeModifiers) {
-                for (const [groupName, options] of groupedOptions.entries()) {
-                    const firstOption = options[0] || {};
-                    const selectionMode =
-                        String(firstOption.selection_mode || "optional").trim() ||
-                        "optional";
-                    const minSelect = Math.max(
-                        selectionMode === "optional" ? 0 : 1,
-                        Number(firstOption.min_select ?? 0)
+                const groupedModifierOptions = applicableOptions.reduce(
+                    (groups, option) => {
+                        const groupName = normalizeModifierGroupName(option?.group_name);
+                        const currentGroup = groups[groupName] || {
+                            group_name: groupName,
+                            selection_mode:
+                                String(option?.selection_mode || "optional").trim() ||
+                                "optional",
+                            min_select: Number(option?.min_select ?? 0),
+                            max_select: Number(option?.max_select ?? 0),
+                            options: [],
+                        };
+
+                        currentGroup.options.push(option);
+                        groups[groupName] = currentGroup;
+
+                        return groups;
+                    },
+                    {}
+                );
+                const modifierGroups = Object.values(groupedModifierOptions);
+                const hasAnyConfiguredRequiredGroup = modifierGroups.some(
+                    (group) => {
+                        const mode = String(group.selection_mode || "optional").trim();
+                        const min = Number(group.min_select ?? 0);
+                        return mode === "single" || min > 0;
+                    }
+                );
+
+                let hasAnyAvailableRequiredGroup = false;
+
+                for (const group of modifierGroups) {
+                    const groupOptions = group.options.filter((option) =>
+                        isModifierOptionAvailable(option, modifierModalQuantity)
                     );
-                    const maxSelectRaw = Number(firstOption.max_select ?? 0);
+                    const ruleOption = groupOptions[0] || group;
+                    const selectionMode =
+                        String(ruleOption.selection_mode || "optional").trim() ||
+                        "optional";
+                    const minSelect = Math.min(
+                        groupOptions.length,
+                        Math.max(
+                            selectionMode === "optional" ? 0 : 1,
+                            Number(ruleOption.min_select ?? 0)
+                        )
+                    );
+                    if (minSelect > 0) {
+                        hasAnyAvailableRequiredGroup = true;
+                    }
+                    const maxSelectRaw = Number(ruleOption.max_select ?? 0);
                     const maxSelect =
                         selectionMode === "single"
                             ? 1
                             : maxSelectRaw > 0
                               ? maxSelectRaw
                               : null;
-                    const selectedCount = options.filter((option) =>
+                    const selectedCount = groupOptions.filter((option) =>
                         selectedOptionIdSet.has(Number(option?.id || 0))
                     ).length;
 
                     if (selectedCount < minSelect) {
                         toast.error(
                             minSelect <= 1
-                                ? `Kategori ${groupName} wajib dipilih.`
-                                : `Kategori ${groupName} wajib memilih minimal ${minSelect} opsi.`
+                                ? `Kategori ${group.group_name} wajib dipilih.`
+                                : `Kategori ${group.group_name} wajib memilih minimal ${minSelect} opsi.`
                         );
                         return;
                     }
@@ -3691,17 +3743,21 @@ export default function Index({
                     if (maxSelect !== null && selectedCount > maxSelect) {
                         toast.error(
                             maxSelect <= 1
-                                ? `Kategori ${groupName} hanya boleh memilih 1 opsi.`
-                                : `Kategori ${groupName} maksimal ${maxSelect} opsi.`
+                                ? `Kategori ${group.group_name} hanya boleh memilih 1 opsi.`
+                                : `Kategori ${group.group_name} maksimal ${maxSelect} opsi.`
                         );
                         return;
                     }
                 }
 
-                if (
-                    groupedOptions.size === 0 &&
+                const effectiveRequiresSelection =
                     Boolean(modifierModalProduct?.requires_modifier_selection) &&
-                    selectedOptionIdSet.size === 0
+                    (!hasAnyConfiguredRequiredGroup || hasAnyAvailableRequiredGroup);
+
+                if (
+                    selectableOptions.length > 0 &&
+                    effectiveRequiresSelection &&
+                    selectableSelectedCount === 0
                 ) {
                     toast.error("Produk ini wajib memilih minimal satu topping.");
                     return;
@@ -3709,7 +3765,7 @@ export default function Index({
             }
 
             const selectedModifiers = includeModifiers
-                ? modifierOptions.filter((option) =>
+                ? selectableOptions.filter((option) =>
                       selectedOptionIdSet.has(Number(option.id || 0))
                   )
                 : [];

@@ -17,6 +17,7 @@ use App\Models\PaymentSetting;
 use App\Models\PosCheckoutReservation;
 use App\Models\PrintJob;
 use App\Models\Product;
+use App\Models\ProductModifierOption;
 use App\Models\Receivable;
 use App\Models\Setting;
 use App\Models\TableOrder;
@@ -1579,7 +1580,10 @@ class TransactionController extends Controller
             return;
         }
 
-        $activeOptions = $cart->product->modifierOptions
+        $orderType = $this->normalizeCartOrderType($orderType) ?? $cart->order_type ?? 'dine_in';
+        $cartQty = max(1, (int) ($cart->qty ?? 1));
+
+        $applicableOptions = $cart->product->modifierOptions
             ->where('is_active', true)
             ->filter(fn ($option) => $option->appliesTo($orderType))
             ->values();
@@ -1589,30 +1593,65 @@ class TransactionController extends Controller
             ->filter(fn ($value) => ! str_starts_with($value, ':'))
             ->values();
 
-        $groupedOptions = $activeOptions->groupBy(function ($option) {
+        $selectedModifierOptionIds = $cart->modifiers
+            ->pluck('product_modifier_option_id')
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        $configuredGroups = $applicableOptions->groupBy(function ($option) {
             $groupName = trim((string) ($option->group_name ?? ''));
 
             return $groupName !== '' ? $groupName : 'Topping';
         });
 
+        $hasAnyConfiguredRequiredGroup = $configuredGroups->contains(function ($options) {
+            $first = $options->first();
+            $mode = trim((string) ($first->selection_mode ?? 'optional')) ?: 'optional';
+            $min = (int) ($first->min_select ?? 0);
+
+            return $mode === 'single' || $min > 0;
+        });
+
+        $availableOptions = $applicableOptions->filter(function ($option) use ($cartQty) {
+            return $option->stock === null || (int) $option->stock >= $cartQty;
+        })->values();
+
+        $groupedOptions = $availableOptions->groupBy(function ($option) {
+            $groupName = trim((string) ($option->group_name ?? ''));
+
+            return $groupName !== '' ? $groupName : 'Topping';
+        });
+
+        $hasAnyAvailableRequiredGroup = false;
+
         foreach ($groupedOptions as $groupName => $options) {
             $firstOption = $options->first();
             $selectionMode = trim((string) ($firstOption->selection_mode ?? 'optional')) ?: 'optional';
-            $minSelect = max(
-                $selectionMode === 'optional' ? 0 : 1,
-                (int) ($firstOption->min_select ?? 0)
+            $minSelect = min(
+                $options->count(),
+                max(
+                    $selectionMode === 'optional' ? 0 : 1,
+                    (int) ($firstOption->min_select ?? 0)
+                )
             );
+            if ($minSelect > 0) {
+                $hasAnyAvailableRequiredGroup = true;
+            }
             $maxSelectRaw = (int) ($firstOption->max_select ?? 0);
             $maxSelect = $selectionMode === 'single'
                 ? 1
                 : ($maxSelectRaw > 0 ? $maxSelectRaw : null);
             $selectedCount = $options
-                ->map(function ($option) use ($cart) {
+                ->filter(function ($option) use ($cart, $selectedModifierKeys, $selectedModifierOptionIds) {
+                    if ($selectedModifierOptionIds->isNotEmpty() && $selectedModifierOptionIds->contains((int) $option->id)) {
+                        return true;
+                    }
                     $payload = $this->modifierMarkupService->payloadForOption($option, $cart->outlet_id);
+                    $key = trim((string) ($payload['name'] ?? $option->name)).':'.(int) ($payload['price'] ?? 0);
 
-                    return trim((string) ($payload['name'] ?? $option->name)).':'.(int) ($payload['price'] ?? 0);
+                    return $selectedModifierKeys->contains($key);
                 })
-                ->filter(fn ($key) => $selectedModifierKeys->contains($key))
                 ->count();
 
             if ($selectedCount < $minSelect) {
@@ -1632,8 +1671,11 @@ class TransactionController extends Controller
             }
         }
 
-        if ($groupedOptions->isEmpty()
-            && (bool) $cart->product->requires_modifier_selection
+        $effectiveRequiresSelection = (bool) $cart->product->requires_modifier_selection
+            && (! $hasAnyConfiguredRequiredGroup || $hasAnyAvailableRequiredGroup);
+
+        if ($groupedOptions->isNotEmpty()
+            && $effectiveRequiresSelection
             && $selectedModifierKeys->isEmpty()) {
             throw ValidationException::withMessages([
                 'modifier' => "Produk {$cart->product->title} wajib memilih minimal satu topping.",
@@ -1977,6 +2019,33 @@ class TransactionController extends Controller
                         $request,
                         $firstError ?: 'Ada topping wajib yang belum dipilih.'
                     );
+                }
+            }
+
+            $modifierOptionIds = $checkoutCarts
+                ->flatMap(fn ($cart) => $cart->modifiers->pluck('product_modifier_option_id'))
+                ->filter()
+                ->unique()
+                ->values();
+            if ($modifierOptionIds->isNotEmpty()) {
+                $modifierOptions = ProductModifierOption::whereIn('id', $modifierOptionIds)->get()->keyBy('id');
+                $requestedQtyByMod = [];
+                foreach ($checkoutCarts as $c) {
+                    foreach ($c->modifiers as $mod) {
+                        $optId = (int) ($mod->product_modifier_option_id ?? 0);
+                        if ($optId > 0) {
+                            $requestedQtyByMod[$optId] = ($requestedQtyByMod[$optId] ?? 0) + max(1, (int) ($c->qty ?? 1));
+                        }
+                    }
+                }
+                foreach ($requestedQtyByMod as $optId => $totalNeeded) {
+                    $opt = $modifierOptions->get($optId);
+                    if ($opt && $opt->stock !== null && (int) $opt->stock < $totalNeeded) {
+                        return $this->transactionStoreErrorResponse(
+                            $request,
+                            "Stok topping {$opt->name} tidak mencukupi (sisa {$opt->stock}, dibutuhkan {$totalNeeded})."
+                        );
+                    }
                 }
             }
 

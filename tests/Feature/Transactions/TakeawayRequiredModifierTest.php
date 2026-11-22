@@ -137,6 +137,50 @@ class TakeawayRequiredModifierTest extends TestCase
         $this->assertSame('take_away', Transaction::latest('id')->first()->order_type);
     }
 
+    public function test_unavailable_take_away_topping_is_not_required_in_pos(): void
+    {
+        $cashier = $this->createCashier();
+        $outlet = $this->createOutlet();
+        $cashier->outlets()->attach($outlet, ['is_primary' => true]);
+        $this->openShiftFor($cashier, $outlet);
+
+        $customer = Customer::create([
+            'name' => 'Bungkus Habis',
+            'no_telp' => 62812345,
+            'address' => 'Jl. Topping',
+        ]);
+        $product = $this->createProductWithScopedGroups();
+        $product->update(['requires_modifier_selection' => true]);
+
+        $product->modifierOptions()
+            ->where('group_name', 'Bungkus')
+            ->update(['stock' => 0]);
+
+        Cart::create([
+            'cashier_id' => $cashier->id,
+            'outlet_id' => $outlet->id,
+            'product_id' => $product->id,
+            'qty' => 1,
+            'price' => $product->sell_price,
+            'order_type' => 'take_away',
+        ]);
+
+        $this->actingAs($cashier)
+            ->post(route('transactions.store'), [
+                'customer_id' => $customer->id,
+                'order_type' => 'take_away',
+                'discount' => 0,
+                'grand_total' => $product->sell_price,
+                'cash' => $product->sell_price,
+                'change' => 0,
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseCount('transactions', 1);
+        $this->assertSame('take_away', Transaction::latest('id')->first()->order_type);
+    }
+
     public function test_per_item_order_type_overrides_transaction_level(): void
     {
         $cashier = $this->createCashier();

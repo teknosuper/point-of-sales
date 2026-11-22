@@ -425,13 +425,21 @@ export default function Menu({
     const modifierModalSelectedModifierTotal = useMemo(
         () =>
             (modifierModalProduct?.modifier_options || [])
-                .filter((option) =>
-                    new Set(
-                        selectedModifierOptionIds.map((id) => Number(id || 0))
-                    ).has(Number(option.id || 0))
+                .filter(
+                    (option) =>
+                        appliesToOrderType(option, modifierModalOrderType) &&
+                        isModifierOptionAvailable(option, modifierModalQuantity) &&
+                        new Set(
+                            selectedModifierOptionIds.map((id) => Number(id || 0))
+                        ).has(Number(option.id || 0))
                 )
                 .reduce((sum, option) => sum + Number(option.price || 0), 0),
-        [modifierModalProduct, selectedModifierOptionIds]
+        [
+            modifierModalProduct,
+            modifierModalOrderType,
+            modifierModalQuantity,
+            selectedModifierOptionIds,
+        ]
     );
     const modifierModalDraftCart = useMemo(() => {
         if (!modifierModalProduct?.id) {
@@ -886,13 +894,30 @@ export default function Menu({
                     return item;
                 }
 
-                const maxStock = Number(
-                    productsById[Number(item.product_id)]?.stock || safeQty
-                );
+                const product = productsById[Number(item.product_id)];
+                const maxStock = Number(product?.stock || safeQty);
+                const maxModifierStock = (item.modifiers || []).reduce((minStock, mod) => {
+                    const modOption = (product?.modifier_options || []).find(
+                        (opt) => Number(opt.id) === Number(mod.id || mod.product_modifier_option_id)
+                    );
+                    if (modOption && modOption.stock !== null && modOption.stock !== undefined) {
+                        return Math.min(minStock, Number(modOption.stock));
+                    }
+                    return minStock;
+                }, Infinity);
+
+                const effectiveMax = Math.min(maxStock, maxModifierStock);
+                if (safeQty > effectiveMax) {
+                    toast.error(
+                        effectiveMax < maxStock
+                            ? `Stok topping tidak mencukupi untuk jumlah lebih dari ${effectiveMax}.`
+                            : `Stok produk hanya tersisa ${effectiveMax}.`
+                    );
+                }
 
                 return {
                     ...item,
-                    qty: Math.min(maxStock, safeQty),
+                    qty: Math.min(effectiveMax, safeQty),
                 };
             });
         });
@@ -1011,34 +1036,71 @@ export default function Menu({
             }, new Map());
 
             if (includeModifiers) {
-                for (const [groupName, options] of groupedOptions.entries()) {
-                    const firstOption = options[0] || {};
+                const groupedModifierOptions = applicableOptions.reduce(
+                    (groups, option) => {
+                        const groupName = normalizeModifierGroupName(option?.group_name);
+                        const currentGroup = groups[groupName] || {
+                            group_name: groupName,
+                            selection_mode:
+                                String(option?.selection_mode || "optional").trim() ||
+                                "optional",
+                            min_select: Number(option?.min_select ?? 0),
+                            max_select: Number(option?.max_select ?? 0),
+                            options: [],
+                        };
+
+                        currentGroup.options.push(option);
+                        groups[groupName] = currentGroup;
+
+                        return groups;
+                    },
+                    {}
+                );
+                const modifierGroups = Object.values(groupedModifierOptions);
+                const hasAnyConfiguredRequiredGroup = modifierGroups.some(
+                    (group) => {
+                        const mode = String(group.selection_mode || "optional").trim();
+                        const min = Number(group.min_select ?? 0);
+                        return mode === "single" || min > 0;
+                    }
+                );
+
+                let hasAnyAvailableRequiredGroup = false;
+
+                for (const group of modifierGroups) {
+                    const groupOptions = group.options.filter((option) =>
+                        isModifierOptionAvailable(option, modifierModalQuantity)
+                    );
+                    const ruleOption = groupOptions[0] || group;
                     const selectionMode =
-                        String(firstOption.selection_mode || "optional").trim() ||
+                        String(ruleOption.selection_mode || "optional").trim() ||
                         "optional";
                     const minSelect = Math.min(
-                        options.length,
+                        groupOptions.length,
                         Math.max(
                             selectionMode === "optional" ? 0 : 1,
-                            Number(firstOption.min_select ?? 0)
+                            Number(ruleOption.min_select ?? 0)
                         )
                     );
-                    const maxSelectRaw = Number(firstOption.max_select ?? 0);
+                    if (minSelect > 0) {
+                        hasAnyAvailableRequiredGroup = true;
+                    }
+                    const maxSelectRaw = Number(ruleOption.max_select ?? 0);
                     const maxSelect =
                         selectionMode === "single"
                             ? 1
                             : maxSelectRaw > 0
                               ? maxSelectRaw
                               : null;
-                    const selectedCount = options.filter((option) =>
+                    const selectedCount = groupOptions.filter((option) =>
                         selectedOptionIdSet.has(Number(option?.id || 0))
                     ).length;
 
                     if (selectedCount < minSelect) {
                         toast.error(
                             minSelect <= 1
-                                ? `Kategori ${groupName} wajib dipilih.`
-                                : `Kategori ${groupName} wajib memilih minimal ${minSelect} opsi.`
+                                ? `Kategori ${group.group_name} wajib dipilih.`
+                                : `Kategori ${group.group_name} wajib memilih minimal ${minSelect} opsi.`
                         );
                         return;
                     }
@@ -1046,16 +1108,20 @@ export default function Menu({
                     if (maxSelect !== null && selectedCount > maxSelect) {
                         toast.error(
                             maxSelect <= 1
-                                ? `Kategori ${groupName} hanya boleh memilih 1 opsi.`
-                                : `Kategori ${groupName} maksimal ${maxSelect} opsi.`
+                                ? `Kategori ${group.group_name} hanya boleh memilih 1 opsi.`
+                                : `Kategori ${group.group_name} maksimal ${maxSelect} opsi.`
                         );
                         return;
                     }
                 }
 
-                if (
-                    groupedOptions.size > 0 &&
+                const effectiveRequiresSelection =
                     Boolean(modifierModalProduct?.requires_modifier_selection) &&
+                    (!hasAnyConfiguredRequiredGroup || hasAnyAvailableRequiredGroup);
+
+                if (
+                    selectableOptions.length > 0 &&
+                    effectiveRequiresSelection &&
                     selectableSelectedCount === 0
                 ) {
                     toast.error("Produk ini wajib memilih minimal satu topping.");

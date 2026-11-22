@@ -142,6 +142,41 @@ class TableOrderTakeawayModifierTest extends TestCase
         $this->assertDatabaseCount('table_order_item_modifiers', 0);
     }
 
+    public function test_insufficient_cumulative_modifier_stock_is_rejected_from_table(): void
+    {
+        [$outlet, $table, $product, $bungkus, $customer] = $this->createFixture();
+        $bungkus->update(['stock' => 2]);
+
+        // Requesting 2 lines of 2 items each with bungkus = 4 total bungkus, but only 2 in stock
+        $this->withSession([
+            "public_table_order.customer_id.{$outlet->id}" => $customer->id,
+        ])->postJson(route('table-order.store', $table->qr_token), [
+            'payment_method' => 'cash',
+            'items' => [
+                [
+                    'product_id' => $product->id,
+                    'qty' => 2,
+                    'order_type' => 'take_away',
+                    'modifiers' => [
+                        ['id' => $bungkus->id],
+                    ],
+                ],
+                [
+                    'product_id' => $product->id,
+                    'qty' => 2,
+                    'order_type' => 'take_away',
+                    'modifiers' => [
+                        ['id' => $bungkus->id],
+                    ],
+                ],
+            ],
+        ])->assertStatus(422);
+
+        $this->assertDatabaseMissing('table_orders', [
+            'outlet_id' => $outlet->id,
+        ]);
+    }
+
     private function createFixture(): array
     {
         $outlet = Outlet::create([
