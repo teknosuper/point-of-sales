@@ -79,6 +79,18 @@ export const appliesToOrderType = (option, orderType) => {
     return scope === orderType;
 };
 
+export const isModifierOptionAvailable = (option, quantity = 1) => {
+    if (!option || option.is_active === false) {
+        return false;
+    }
+
+    if (option.stock === null || option.stock === undefined) {
+        return true;
+    }
+
+    return Number(option.stock) >= Math.max(1, Number(quantity || 1));
+};
+
 export const sanitizePhoneNumber = (value = "") =>
     String(value)
         .replace(/[^\d+]/g, "")

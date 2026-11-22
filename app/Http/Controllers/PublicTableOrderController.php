@@ -8,6 +8,7 @@ use App\Models\Customer;
 use App\Models\DiningTable;
 use App\Models\PaymentSetting;
 use App\Models\Product;
+use App\Models\ProductOutletStock;
 use App\Models\TableOrder;
 use App\Models\TableOrderItem;
 use App\Models\Transaction;
@@ -74,9 +75,17 @@ class PublicTableOrderController extends Controller
                 'is_featured',
                 'shadow_banned_at'
             )
-            ->get()
-            ->map(function (Product $product) {
-                $product->setAttribute('stock', (int) ($product->stock ?? 0));
+            ->get();
+        $outletStocks = ProductOutletStock::query()
+            ->where('outlet_id', $table->outlet_id)
+            ->whereIn('product_id', $products->pluck('id'))
+            ->pluck('stock', 'product_id');
+        $products = $products
+            ->map(function (Product $product) use ($outletStocks) {
+                $product->setAttribute(
+                    'stock',
+                    (int) ($outletStocks->get($product->id) ?? $product->stock ?? 0)
+                );
 
                 return $product;
             })
@@ -192,17 +201,6 @@ class PublicTableOrderController extends Controller
                 ])->values(),
             ] : null,
             'tenantOutlets' => $tenantOutlets,
-            'categories' => \App\Models\Category::query()
-                ->select('id', 'name', 'image', 'parent_id')
-                ->orderBy('name')
-                ->get()
-                ->values(),
-            'mainCategories' => \App\Models\Category::query()
-                ->whereNull('parent_id')
-                ->whereNull('tenant_outlet_id')
-                ->orderBy('name')
-                ->get(['id', 'name', 'image'])
-                ->values(),
             'paymentMethods' => $selfOrderPaymentMethods,
             'bankAccounts' => $bankAccounts->map(fn (BankAccount $bankAccount) => [
                 'id' => (int) $bankAccount->id,
@@ -294,7 +292,11 @@ class PublicTableOrderController extends Controller
     {
         $table = $this->resolveTable($qrToken);
         $customer = $this->resolvedPublicCustomer($request, $table->outlet_id);
-        abort_unless($customer, 422, 'Identitas pembeli belum dipilih.');
+        if (! $customer) {
+            throw ValidationException::withMessages([
+                'customer' => 'Sesi pembeli sudah berakhir. Masukkan kembali nomor HP sebelum mengirim pesanan.',
+            ]);
+        }
 
         $validated = $this->validatePublicOrderPayload($request, $table->outlet_id);
         $order = $this->tableOrderService->createFromPublicMenu($table, $customer, $validated);
@@ -318,7 +320,11 @@ class PublicTableOrderController extends Controller
     {
         $table = $this->resolveTable($qrToken);
         $customer = $this->resolvedPublicCustomer($request, $table->outlet_id);
-        abort_unless($customer, 422, 'Identitas pembeli belum dipilih.');
+        if (! $customer) {
+            throw ValidationException::withMessages([
+                'customer' => 'Sesi pembeli sudah berakhir. Masukkan kembali nomor HP sebelum memeriksa harga pesanan.',
+            ]);
+        }
 
         $validated = $this->validatePublicOrderPayload($request, $table->outlet_id);
         $preview = $this->tableOrderService->previewPublicMenu($table, $customer, $validated);
@@ -1148,10 +1154,11 @@ class PublicTableOrderController extends Controller
 
         return $request->validate([
             'notes' => ['nullable', 'string', 'max:1000'],
-            'payment_method' => ['nullable', Rule::in($allowedPaymentMethods)],
+            'payment_method' => ['required', Rule::in($allowedPaymentMethods)],
             'bank_account_id' => [
                 'nullable',
                 'integer',
+                Rule::requiredIf($request->input('payment_method') === PaymentSetting::GATEWAY_BANK_TRANSFER),
                 Rule::exists('bank_accounts', 'id')->where(fn ($query) => $query
                     ->where('outlet_id', $outletId)
                     ->where('is_active', true)),
@@ -1167,6 +1174,38 @@ class PublicTableOrderController extends Controller
             'items.*.promo_reward_label' => ['nullable', 'string', 'max:255'],
             'items.*.modifiers' => ['nullable', 'array'],
             'items.*.modifiers.*.id' => ['required', 'integer', 'exists:product_modifier_options,id'],
+        ], [
+            'notes.string' => 'Catatan pesanan harus berupa teks.',
+            'notes.max' => 'Catatan pesanan maksimal 1.000 karakter.',
+            'payment_method.required' => 'Pilih metode pembayaran sebelum mengirim pesanan.',
+            'payment_method.in' => 'Metode pembayaran yang dipilih sudah tidak tersedia. Pilih metode lain.',
+            'bank_account_id.required' => 'Pilih rekening tujuan untuk pembayaran transfer bank.',
+            'bank_account_id.integer' => 'Rekening tujuan transfer tidak valid.',
+            'bank_account_id.exists' => 'Rekening tujuan tidak aktif atau sudah tidak tersedia.',
+            'items.required' => 'Keranjang masih kosong. Tambahkan minimal satu menu.',
+            'items.array' => 'Data keranjang tidak valid. Periksa kembali pesanan.',
+            'items.min' => 'Keranjang masih kosong. Tambahkan minimal satu menu.',
+            'items.*.client_key.string' => 'Identitas item pada keranjang tidak valid.',
+            'items.*.client_key.max' => 'Identitas item pada keranjang terlalu panjang.',
+            'items.*.product_id.required' => 'Ada item tanpa produk. Hapus item tersebut lalu pilih ulang dari menu.',
+            'items.*.product_id.integer' => 'Data produk pada keranjang tidak valid.',
+            'items.*.product_id.exists' => 'Ada produk yang sudah tidak tersedia. Hapus produk tersebut dari keranjang.',
+            'items.*.qty.required' => 'Jumlah item wajib diisi.',
+            'items.*.qty.integer' => 'Jumlah item harus berupa angka bulat.',
+            'items.*.qty.min' => 'Jumlah minimal setiap item adalah 1.',
+            'items.*.qty.max' => 'Jumlah maksimal setiap item adalah 50.',
+            'items.*.notes.string' => 'Catatan item harus berupa teks.',
+            'items.*.notes.max' => 'Catatan setiap item maksimal 500 karakter.',
+            'items.*.order_type.in' => 'Pilih penyajian Makan di sini atau Bungkus.',
+            'items.*.is_promo_reward.boolean' => 'Status bonus promo pada item tidak valid.',
+            'items.*.promo_reward_rule_name.string' => 'Data promo pada item tidak valid.',
+            'items.*.promo_reward_rule_name.max' => 'Nama promo pada item terlalu panjang.',
+            'items.*.promo_reward_label.string' => 'Label promo pada item tidak valid.',
+            'items.*.promo_reward_label.max' => 'Label promo pada item terlalu panjang.',
+            'items.*.modifiers.array' => 'Data topping tidak valid. Pilih ulang topping item tersebut.',
+            'items.*.modifiers.*.id.required' => 'Ada topping yang tidak valid. Pilih ulang topping item tersebut.',
+            'items.*.modifiers.*.id.integer' => 'Data topping tidak valid.',
+            'items.*.modifiers.*.id.exists' => 'Ada topping yang sudah tidak tersedia. Pilih ulang topping item tersebut.',
         ]);
     }
 

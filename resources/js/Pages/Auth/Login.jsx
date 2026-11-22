@@ -156,38 +156,28 @@ export default function Login({
             <Head title="Masuk" />
             <Toaster position="top-right" />
 
-            <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(79,70,229,0.12),_transparent_32%),linear-gradient(180deg,_#f8fafc,_#eef2ff_52%,_#f8fafc)] dark:bg-slate-950 lg:flex">
-                {/* Left - Form */}
-                <div className="flex min-h-screen flex-1 items-center justify-center px-5 py-8 sm:px-8 lg:px-10">
-                    <div className="w-full max-w-md rounded-[32px] border border-white/70 bg-white/92 p-6 shadow-[0_30px_80px_-32px_rgba(15,23,42,0.28)] backdrop-blur sm:p-8 dark:border-slate-800 dark:bg-slate-900/92">
+            <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(79,70,229,0.14),_transparent_34%),linear-gradient(180deg,_#f8fafc,_#eef2ff_52%,_#f8fafc)] px-5 py-8 dark:bg-slate-950">
+                <div className="w-full max-w-sm rounded-[28px] border border-white/70 bg-white/92 p-6 shadow-[0_28px_70px_-32px_rgba(15,23,42,0.3)] backdrop-blur sm:p-7 dark:border-slate-800 dark:bg-slate-900/92">
                         {/* Logo */}
-                        <div className="mb-8">
-                            <div className="mb-6 inline-flex items-center gap-3">
-                                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/20">
+                        <div className="mb-6 text-center">
+                            <div className="mb-4 inline-flex items-center gap-3">
+                                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/20">
                                     <IconShoppingCart
-                                        size={24}
+                                        size={22}
                                         className="text-white"
                                     />
                                 </div>
-                                <span className="text-2xl font-bold text-slate-900 dark:text-white">
+                                <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
                                     GTC KASIR
                                 </span>
                             </div>
-                            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary-200 bg-primary-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary-700 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200">
-                                {isKitchenMode ? "Workspace Dapur" : "Akses Aplikasi"}
-                            </div>
-                            <h1 className="text-3xl font-bold text-slate-900 dark:text-white sm:text-[2rem]">
+                            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
                                 {isKitchenMode
                                     ? "Masuk ke Layar Dapur"
-                                    : "Masuk ke GTC KASIR"}
+                                    : "Selamat Datang"}
                             </h1>
-                            <p className="mt-2 text-slate-600 dark:text-slate-400">
-                                {isKitchenMode
-                                    ? "Masuk untuk membuka antrean dapur pada stasiun kerja Anda"
-                                    : "Masuk untuk mengakses dashboard, POS, dan seluruh modul operasional toko."}
-                            </p>
                             {isKitchenMode && stationHint ? (
-                                <div className="mt-4 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200">
+                                <div className="mt-4 rounded-2xl border border-primary-200 bg-primary-50 px-4 py-3 text-left text-sm text-primary-800 dark:border-primary-900/40 dark:bg-primary-950/30 dark:text-primary-200">
                                     <p className="font-semibold">
                                         Stasiun tujuan: {stationHint.name}
                                     </p>
@@ -198,28 +188,8 @@ export default function Login({
                                 </div>
                             ) : null}
                             {isKitchenMode && kioskMode ? (
-                                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
                                     Mode kiosk aktif. Setelah login, perangkat akan beralih ke tampilan antrean dapur yang lebih ringkas.
-                                </div>
-                            ) : null}
-                            {!isKitchenMode ? (
-                                <div className="mt-4 grid grid-cols-2 gap-3">
-                                    {[
-                                        ["Kasir", "Transaksi cepat & akurat"],
-                                        ["Offline Cash", "Tetap jalan tanpa internet"],
-                                    ].map(([title, detail]) => (
-                                        <div
-                                            key={title}
-                                            className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40"
-                                        >
-                                            <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                                                {title}
-                                            </p>
-                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                {detail}
-                                            </p>
-                                        </div>
-                                    ))}
                                 </div>
                             ) : null}
                         </div>
@@ -244,7 +214,7 @@ export default function Login({
                         )}
 
                         {/* Form */}
-                        <form onSubmit={submit} className="space-y-5">
+                        <form onSubmit={submit} className="space-y-4">
                             <AuthBotGuardFields
                                 botGuard={botGuard}
                                 data={data}
@@ -404,36 +374,6 @@ export default function Login({
                                 </p>
                             )}
                         </form>
-                    </div>
-                </div>
-
-                {/* Right - Image/Decoration */}
-                <div className="hidden flex-1 items-center justify-center bg-[linear-gradient(145deg,#4338ca_0%,#312e81_52%,#0f172a_100%)] p-12 lg:flex">
-                    <div className="max-w-md text-center text-white">
-                        <div className="mx-auto mb-8 flex h-24 w-24 items-center justify-center rounded-[28px] bg-white/15 ring-1 ring-white/15">
-                            <IconShoppingCart size={48} />
-                        </div>
-                        <h2 className="text-3xl font-bold mb-4">
-                            Satu platform untuk kasir, dapur, dan kendali operasional.
-                        </h2>
-                        <p className="text-lg opacity-90">
-                            Akses dari perangkat mana pun untuk langsung masuk ke alur kerja yang paling sering dipakai tim Anda.
-                        </p>
-                        <div className="mt-8 flex flex-wrap justify-center gap-3">
-                            {[
-                                "Transaksi Cepat",
-                                "Offline Cash",
-                                "Alur Dapur",
-                            ].map((feature, i) => (
-                                <span
-                                    key={i}
-                                    className="px-4 py-2 bg-white/20 rounded-full text-sm font-medium"
-                                >
-                                    {feature}
-                                </span>
-                            ))}
-                        </div>
-                    </div>
                 </div>
             </div>
         </>

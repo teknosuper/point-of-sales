@@ -27,19 +27,43 @@ const ModifierOptionsModal = lazy(() => import("@/Components/POS/ModifierOptions
 import StoreClosedOverlay from "./components/StoreClosedOverlay";
 import {
     formatPrice,
-    flattenErrorMessages,
     paymentMethodSummary,
     normalizeModifierGroupName,
     ORDER_TYPE_LABEL,
     buildOrderTypeNotes,
     stripOrderTypeNotes,
     appliesToOrderType,
+    isModifierOptionAvailable,
     sanitizePhoneNumber,
     isValidPhoneNumber,
     normalizePhoneNumber,
-    ORDER_STATUS_LABEL as orderStatusLabel,
     EMPTY_PRICING_PREVIEW as emptyPricingPreview,
 } from "./utils/tableOrderHelpers";
+
+function SubmitErrorAlert({ errors = [] }) {
+    if (errors.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="rounded-2xl border border-danger-200 bg-danger-50 p-4" role="alert">
+            <p className="text-sm font-bold text-danger-800">Pesanan belum dikirim</p>
+            <p className="mt-1 text-xs text-danger-700">
+                Keranjang tetap tersimpan. Perbaiki bagian berikut:
+            </p>
+            <ul className="mt-3 space-y-2">
+                {errors.map((error, index) => (
+                    <li key={`${error.field}-${index}`} className="flex gap-2 text-xs leading-5 text-danger-800">
+                        <span aria-hidden="true">•</span>
+                        <span>
+                            <strong>{error.label}:</strong> {error.message}
+                        </span>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
 
 
 export default function Menu({
@@ -52,8 +76,6 @@ export default function Menu({
     bankAccounts = [],
     storeHours = null,
     tenantOutlets = [],
-    mainCategories = [],
-    categories = [],
     recommendations = null,
 }) {
     const { flash, storeProfile } = usePage().props;
@@ -86,21 +108,8 @@ export default function Menu({
     const editableOrderOpenedRef = useRef(false);
     const cartStorageHydratedKeyRef = useRef(null);
     const orderNotesFocusedRef = useRef(false);
-    const floatingCartDragRef = useRef({
-        dragging: false,
-        moved: false,
-        startX: 0,
-        startY: 0,
-        originX: 16,
-        originY: 96,
-    });
-
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [mobileView, setMobileView] = useState("products");
-    const [floatingCartPosition, setFloatingCartPosition] = useState({
-        x: 16,
-        y: 96,
-    });
     const [searchQuery, setSearchQuery] = useState("");
     const [isSearching, setIsSearching] = useState(false);
     const [addingProductId, setAddingProductId] = useState(null);
@@ -122,6 +131,8 @@ export default function Menu({
     const [modifierModalPricingPreview, setModifierModalPricingPreview] =
         useState(null);
     const [recentRewardProductIds, setRecentRewardProductIds] = useState([]);
+    const [submitErrors, setSubmitErrors] = useState([]);
+    const [hydratedCartStorageKey, setHydratedCartStorageKey] = useState(null);
 
     const orderForm = useForm({
         notes: "",
@@ -177,6 +188,85 @@ export default function Menu({
             .map((product) => Number(product.id))
             .filter(Boolean);
     }, [recommendations]);
+    const selfOrderProducts = useMemo(
+        () =>
+            products
+                .filter((product) => {
+                    const tenantOutletId =
+                        product.tenant_outlet?.id ??
+                        product.tenant_outlet_id ??
+                        null;
+
+                    return (
+                        !tenantOutletId ||
+                        tenantOutlets.some(
+                            (tenant) =>
+                                Number(tenant.id) === Number(tenantOutletId)
+                        )
+                    );
+                })
+                .map((product) => {
+                    const tenantOutletId =
+                        product.tenant_outlet?.id ??
+                        product.tenant_outlet_id ??
+                        null;
+                    const tenant = tenantOutlets.find(
+                        (item) => Number(item.id) === Number(tenantOutletId)
+                    );
+                    const tenantHours =
+                        tenant?.open_time && tenant?.close_time
+                            ? {
+                                  open_time: tenant.open_time,
+                                  close_time: tenant.close_time,
+                              }
+                            : null;
+
+                    return {
+                        ...product,
+                        category: tenant
+                            ? {
+                                  id: tenant.id,
+                                  name: tenant.name,
+                                  parent_id: null,
+                              }
+                            : null,
+                        ...(tenant?.closed_reason
+                            ? {
+                                  store_closed_reason: tenant.closed_reason,
+                                  ...(tenantHours
+                                      ? { tenant_store_hours: tenantHours }
+                                      : {}),
+                                  ...(tenant.next_open_label
+                                      ? {
+                                            tenant_open_countdown:
+                                                tenant.next_open_label,
+                                        }
+                                      : {}),
+                              }
+                            : tenantHours
+                              ? { tenant_store_hours: tenantHours }
+                              : {}),
+                    };
+                }),
+        [products, tenantOutlets]
+    );
+    const kitchenCategories = useMemo(
+        () =>
+            tenantOutlets
+                .filter((tenant) =>
+                    selfOrderProducts.some(
+                        (product) =>
+                            Number(product.tenant_outlet_id) === Number(tenant.id)
+                    )
+                )
+                .map((tenant) => ({
+                    id: tenant.id,
+                    name: tenant.name,
+                    parent_id: null,
+                    sort_order: tenant.sort_order,
+                })),
+        [selfOrderProducts, tenantOutlets]
+    );
     const cartStorageOwnerKey = customer?.id
         ? `customer:${customer.id}`
         : pendingPhone
@@ -260,39 +350,32 @@ export default function Menu({
     const selectedBankAccount = (bankAccounts || []).find(
         (account) => String(account.id) === String(orderForm.data.bank_account_id)
     );
-    const paymentHeadline =
-        orderForm.data.payment_method === "cash"
-            ? "Menunggu approval kasir"
-            : orderForm.data.payment_method === "bank_transfer"
-              ? "Menunggu transfer & konfirmasi"
-              : "Siap bayar mandiri dari meja";
-    const appliedPromoGroups = useMemo(() => {
-        const groups = resolvedPricingPreview?.applied_groups || [];
+    const formatSubmitErrors = useCallback(
+        (errors) =>
+            Object.entries(errors || {}).flatMap(([field, value]) => {
+                const messages = Array.isArray(value) ? value : [value];
+                const itemIndex = field.match(/^items\.(\d+)/)?.[1];
+                const itemName =
+                    itemIndex !== undefined
+                        ? normalizedCarts[Number(itemIndex)]?.product?.title ||
+                          `Item ${Number(itemIndex) + 1}`
+                        : null;
+                const labels = {
+                    customer: "Identitas pembeli",
+                    notes: "Catatan pesanan",
+                    payment_method: "Metode pembayaran",
+                    bank_account_id: "Rekening transfer",
+                    items: "Pesanan",
+                };
 
-        return Object.values(
-            groups.reduce((accumulator, group, index) => {
-                const label =
-                    group?.label || group?.rule?.name || `Promo ${index + 1}`;
-                const key = `${group?.rule?.id || "rule"}:${label}`;
-
-                if (!accumulator[key]) {
-                    accumulator[key] = {
-                        key,
-                        label,
-                        count: 0,
-                        discount_total: 0,
-                    };
-                }
-
-                accumulator[key].count += 1;
-                accumulator[key].discount_total += Number(
-                    group?.discount_total || 0
-                );
-
-                return accumulator;
-            }, {})
-        );
-    }, [resolvedPricingPreview]);
+                return messages.filter(Boolean).map((message) => ({
+                    field,
+                    label: itemName || labels[field] || "Pesanan",
+                    message: String(message),
+                }));
+            }),
+        [normalizedCarts]
+    );
     const paymentPreviewItems = useMemo(
         () =>
             normalizedCarts.map((item) => {
@@ -310,11 +393,6 @@ export default function Menu({
                 return {
                     item,
                     promoState,
-                    estimatedRemainingStock: Math.max(
-                        0,
-                        Number(fallbackProduct?.stock || 0) -
-                            Number(item.qty || 0)
-                    ),
                     resolvedPromoItem: {
                         ...item,
                         qty: item.qty,
@@ -911,10 +989,16 @@ export default function Menu({
             ).filter((option) =>
                 appliesToOrderType(option, modifierModalOrderType)
             );
+            const selectableOptions = applicableOptions.filter((option) =>
+                isModifierOptionAvailable(option, modifierModalQuantity)
+            );
             const selectedOptionIdSet = new Set(
                 selectedModifierOptionIds.map((id) => Number(id || 0))
             );
-            const groupedOptions = applicableOptions.reduce((groups, option) => {
+            const selectableSelectedCount = selectableOptions.filter((option) =>
+                selectedOptionIdSet.has(Number(option.id || 0))
+            ).length;
+            const groupedOptions = selectableOptions.reduce((groups, option) => {
                 const groupName = normalizeModifierGroupName(option?.group_name);
 
                 if (!groups.has(groupName)) {
@@ -932,9 +1016,12 @@ export default function Menu({
                     const selectionMode =
                         String(firstOption.selection_mode || "optional").trim() ||
                         "optional";
-                    const minSelect = Math.max(
-                        selectionMode === "optional" ? 0 : 1,
-                        Number(firstOption.min_select ?? 0)
+                    const minSelect = Math.min(
+                        options.length,
+                        Math.max(
+                            selectionMode === "optional" ? 0 : 1,
+                            Number(firstOption.min_select ?? 0)
+                        )
                     );
                     const maxSelectRaw = Number(firstOption.max_select ?? 0);
                     const maxSelect =
@@ -967,9 +1054,9 @@ export default function Menu({
                 }
 
                 if (
-                    groupedOptions.size === 0 &&
+                    groupedOptions.size > 0 &&
                     Boolean(modifierModalProduct?.requires_modifier_selection) &&
-                    selectedOptionIdSet.size === 0
+                    selectableSelectedCount === 0
                 ) {
                     toast.error("Produk ini wajib memilih minimal satu topping.");
                     return;
@@ -979,7 +1066,7 @@ export default function Menu({
             setIsModifierModalSubmitting(true);
 
             const selectedModifiers = includeModifiers
-                ? applicableOptions.filter((option) =>
+                ? selectableOptions.filter((option) =>
                       selectedOptionIdSet.has(Number(option.id || 0))
                   )
                 : [];
@@ -1020,77 +1107,28 @@ export default function Menu({
         setMobileView("payment");
     }, [normalizedCarts.length]);
 
-    const openCartTab = useCallback(() => {
-        if (normalizedCarts.length === 0) {
-            toast("Keranjang masih kosong, tambahkan produk terlebih dahulu", {
-                icon: "🛒",
-                duration: 2000,
-            });
-            setMobileView("products");
-            return;
-        }
-
-        setMobileView("cart");
-    }, [normalizedCarts.length]);
-
-    const startFloatingCartDrag = useCallback(
-        (clientX, clientY) => {
-            floatingCartDragRef.current = {
-                dragging: true,
-                moved: false,
-                startX: clientX,
-                startY: clientY,
-                originX: floatingCartPosition.x,
-                originY: floatingCartPosition.y,
-            };
-        },
-        [floatingCartPosition.x, floatingCartPosition.y]
-    );
-
-    useEffect(() => {
-        if (typeof window === "undefined") {
-            return;
-        }
-
-        const handlePointerMove = (event) => {
-            const drag = floatingCartDragRef.current;
-            if (!drag.dragging) {
+    const openWizardStep = useCallback(
+        (step) => {
+            if (step === "products") {
+                setMobileView("products");
                 return;
             }
 
-            const deltaX = event.clientX - drag.startX;
-            const deltaY = event.clientY - drag.startY;
-            const nextX = Math.min(
-                Math.max(12, drag.originX + deltaX),
-                Math.max(12, window.innerWidth - 220)
-            );
-            const nextY = Math.min(
-                Math.max(12, drag.originY + deltaY),
-                Math.max(12, window.innerHeight - 120)
-            );
-
-            if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) {
-                floatingCartDragRef.current.moved = true;
+            if (normalizedCarts.length === 0) {
+                toast.error("Keranjang masih kosong. Tambahkan menu terlebih dahulu.");
+                setMobileView("products");
+                return;
             }
 
-            setFloatingCartPosition({
-                x: nextX,
-                y: nextY,
-            });
-        };
+            if (step === "payment") {
+                openPaymentInfoTab();
+                return;
+            }
 
-        const handlePointerUp = () => {
-            floatingCartDragRef.current.dragging = false;
-        };
-
-        window.addEventListener("pointermove", handlePointerMove);
-        window.addEventListener("pointerup", handlePointerUp);
-
-        return () => {
-            window.removeEventListener("pointermove", handlePointerMove);
-            window.removeEventListener("pointerup", handlePointerUp);
-        };
-    }, []);
+            setMobileView("cart");
+        },
+        [normalizedCarts.length, openPaymentInfoTab]
+    );
 
     const confirmSubmitOrder = useCallback(async () => {
         const paymentMethodLabel =
@@ -1289,10 +1327,19 @@ export default function Menu({
     const submitOrder = useCallback(
         async (event) => {
             event?.preventDefault?.();
+            setSubmitErrors([]);
+            orderForm.clearErrors();
 
             if (normalizedCarts.length === 0) {
+                setSubmitErrors([
+                    {
+                        field: "items",
+                        label: "Pesanan",
+                        message: "Keranjang masih kosong. Tambahkan minimal satu menu.",
+                    },
+                ]);
                 toast.error("Keranjang masih kosong.");
-                setMobileView("products");
+                setMobileView("cart");
                 return;
             }
 
@@ -1300,6 +1347,13 @@ export default function Menu({
                 orderForm.data.payment_method === "bank_transfer" &&
                 !orderForm.data.bank_account_id
             ) {
+                setSubmitErrors([
+                    {
+                        field: "bank_account_id",
+                        label: "Rekening transfer",
+                        message: "Pilih rekening tujuan transfer terlebih dahulu.",
+                    },
+                ]);
                 toast.error("Pilih rekening tujuan transfer terlebih dahulu.");
                 setMobileView("payment");
                 return;
@@ -1321,22 +1375,50 @@ export default function Menu({
                 items: buildPreviewRequestItems(normalizedCarts),
             }));
 
+            if (cartStorageKey && typeof window !== "undefined") {
+                try {
+                    window.localStorage.setItem(
+                        cartStorageKey,
+                        JSON.stringify({
+                            notes: orderForm.data.notes || "",
+                            cartLines,
+                        })
+                    );
+                } catch {
+                    // Submit tetap berjalan; state React masih mempertahankan keranjang.
+                }
+            }
+
             const submitConfig = {
                 preserveScroll: true,
                 onError: (errors) => {
-                    const messages = flattenErrorMessages(errors);
+                    const details = formatSubmitErrors(errors);
+                    const resolvedDetails = details.length
+                        ? details
+                        : [
+                              {
+                                  field: "items",
+                                  label: "Pesanan",
+                                  message: "Stok atau data pesanan berubah. Periksa kembali pesanan.",
+                              },
+                          ];
 
-                    toast.error(
-                        messages[0] ||
-                            "Pesanan belum bisa dikirim karena stok atau data pesanan berubah."
+                    setSubmitErrors(resolvedDetails);
+                    toast.error("Pesanan belum dikirim. Keranjang tetap tersimpan.");
+                    setMobileView(
+                        resolvedDetails.some((error) =>
+                            ["payment_method", "bank_account_id"].includes(error.field)
+                        )
+                            ? "payment"
+                            : "cart"
                     );
-                    setMobileView("cart");
                 },
                 onSuccess: () => {
                     if (cartStorageKey && typeof window !== "undefined") {
                         window.localStorage.removeItem(cartStorageKey);
                     }
 
+                    setSubmitErrors([]);
                     setCartLines([]);
                     setPricingPreview(emptyPricingPreview);
                     orderForm.setData("notes", "");
@@ -1355,9 +1437,11 @@ export default function Menu({
         },
         [
             buildPreviewRequestItems,
+            cartLines,
             cartStorageKey,
             confirmSubmitOrder,
             editableOrder?.access_token,
+            formatSubmitErrors,
             normalizedCarts,
             orderForm,
             table.qr_token,
@@ -1484,11 +1568,13 @@ export default function Menu({
     useEffect(() => {
         if (editableOrder?.access_token) {
             cartStorageHydratedKeyRef.current = null;
+            setHydratedCartStorageKey(null);
             return;
         }
 
         if (!cartStorageKey || typeof window === "undefined") {
             cartStorageHydratedKeyRef.current = null;
+            setHydratedCartStorageKey(null);
             setCartLines([]);
             orderForm.setData("notes", "");
             return;
@@ -1503,6 +1589,7 @@ export default function Menu({
 
             if (!storedPayload) {
                 cartStorageHydratedKeyRef.current = cartStorageKey;
+                setHydratedCartStorageKey(cartStorageKey);
                 setCartLines([]);
                 orderForm.setData("notes", "");
                 return;
@@ -1533,28 +1620,38 @@ export default function Menu({
                 : [];
 
             cartStorageHydratedKeyRef.current = cartStorageKey;
+            setHydratedCartStorageKey(cartStorageKey);
             setCartLines(restoredLines);
             orderForm.setData("notes", parsedPayload?.notes || "");
         } catch {
             cartStorageHydratedKeyRef.current = cartStorageKey;
+            setHydratedCartStorageKey(cartStorageKey);
             setCartLines([]);
             orderForm.setData("notes", "");
         }
     }, [cartStorageKey, editableOrder?.access_token, productsById]);
 
     useEffect(() => {
-        if (!cartStorageKey || typeof window === "undefined") {
+        if (
+            !cartStorageKey ||
+            hydratedCartStorageKey !== cartStorageKey ||
+            typeof window === "undefined"
+        ) {
             return;
         }
 
-        window.localStorage.setItem(
-            cartStorageKey,
-            JSON.stringify({
-                notes: orderForm.data.notes || "",
-                cartLines,
-            })
-        );
-    }, [cartLines, cartStorageKey, orderForm.data.notes]);
+        try {
+            window.localStorage.setItem(
+                cartStorageKey,
+                JSON.stringify({
+                    notes: orderForm.data.notes || "",
+                    cartLines,
+                })
+            );
+        } catch {
+            // State keranjang tetap tersedia selama halaman masih terbuka.
+        }
+    }, [cartLines, cartStorageKey, hydratedCartStorageKey, orderForm.data.notes]);
 
     useEffect(() => {
         if (!modifierModalProduct || !modifierModalDraftCart || !customer) {
@@ -1962,56 +2059,52 @@ export default function Menu({
                     </div>
                 </div>
 
-                {/* Tab navigation */}
-                <div className="grid grid-cols-3 border-b border-slate-200 bg-white">
-                    <button
-                        type="button"
-                        onClick={() => setMobileView("products")}
-                        className={`flex flex-col items-center justify-center gap-0.5 py-2.5 text-[11px] font-semibold transition-colors ${
-                            mobileView === "products"
-                                ? "border-b-2 border-primary-500 text-primary-600"
-                                : "text-slate-400"
-                        }`}
-                    >
-                        <IconShoppingCart size={20} />
-                        <span>Menu</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            if (normalizedCarts.length === 0) {
-                                toast("Keranjang masih kosong", { icon: "🛒", duration: 2000 });
-                                setMobileView("products");
-                                return;
-                            }
-                            setMobileView("cart");
-                        }}
-                        className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 text-[11px] font-semibold transition-colors ${
-                            mobileView === "cart"
-                                ? "border-b-2 border-primary-500 text-primary-600"
-                                : "text-slate-400"
-                        }`}
-                    >
-                        <IconReceipt size={20} />
-                        <span>Pesanan</span>
-                        {cartCount > 0 && (
-                            <span className="absolute right-[calc(50%-22px)] top-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary-500 px-1 text-[10px] font-bold text-white">
-                                {cartCount}
-                            </span>
-                        )}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={openPaymentInfoTab}
-                        className={`flex flex-col items-center justify-center gap-0.5 py-2.5 text-[11px] font-semibold transition-colors ${
-                            mobileView === "payment"
-                                ? "border-b-2 border-primary-500 text-primary-600"
-                                : "text-slate-400"
-                        }`}
-                    >
-                        <IconCash size={20} />
-                        <span>Bayar</span>
-                    </button>
+                <div className="border-b border-slate-200 bg-white px-3 py-3">
+                    <div className="mx-auto grid w-full max-w-3xl grid-cols-3">
+                        {[
+                            { id: "products", number: 1, label: "Pilih menu", shortLabel: "Menu" },
+                            { id: "cart", number: 2, label: "Periksa pesanan", shortLabel: "Periksa" },
+                            { id: "payment", number: 3, label: "Bayar & kirim", shortLabel: "Kirim" },
+                        ].map((step, index, steps) => {
+                            const currentIndex = steps.findIndex((item) => item.id === mobileView);
+                            const completed = index < currentIndex;
+                            const active = step.id === mobileView;
+                            const locked = step.id !== "products" && cartCount === 0;
+
+                            return (
+                                <button
+                                    key={step.id}
+                                    type="button"
+                                    onClick={() => openWizardStep(step.id)}
+                                    disabled={locked}
+                                    aria-current={active ? "step" : undefined}
+                                    className="group relative flex min-w-0 flex-col items-center px-1 disabled:cursor-not-allowed"
+                                >
+                                    {index > 0 ? (
+                                        <span className={`absolute right-1/2 top-4 h-0.5 w-full ${completed || active ? "bg-primary-400" : "bg-slate-200"}`} />
+                                    ) : null}
+                                    <span className={`relative z-[1] flex h-8 w-8 items-center justify-center rounded-full text-xs font-black transition ${
+                                        completed
+                                            ? "bg-primary-600 text-white"
+                                            : active
+                                              ? "bg-primary-100 text-primary-700 ring-4 ring-primary-50"
+                                              : locked
+                                                ? "bg-slate-100 text-slate-300"
+                                                : "bg-slate-100 text-slate-500 group-hover:bg-slate-200"
+                                    }`}>
+                                        {completed ? "✓" : step.number}
+                                    </span>
+                                    <span className={`mt-2 truncate text-[11px] font-bold sm:text-xs ${
+                                        active || completed ? "text-slate-800" : locked ? "text-slate-300" : "text-slate-500"
+                                    }`}>
+                                        <span className="sm:hidden">{step.shortLabel}</span>
+                                        <span className="hidden sm:inline">{step.label}</span>
+                                        {step.id === "cart" && cartCount > 0 ? ` (${cartCount})` : ""}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
                 </div>
 
                 <div className="min-h-0 flex flex-1 flex-col">
@@ -2022,36 +2115,9 @@ export default function Menu({
                         }`}
                     >
                         <ProductGrid
-                            products={tenantOutlets.length > 0
-                                ? products
-                                    .filter((p) => {
-                                        const tid = p.tenant_outlet?.id ?? p.tenant_outlet_id ?? null;
-                                        if (!tid) return true;
-                                        return tenantOutlets.some((t) => Number(t.id) === Number(tid));
-                                    })
-                                    .map((p) => {
-                                        const tid = p.tenant_outlet?.id ?? p.tenant_outlet_id ?? null;
-                                        if (!tid) return p;
-                                        const tenant = tenantOutlets.find((t) => Number(t.id) === Number(tid));
-                                        const hours = tenant?.open_time && tenant?.close_time
-                                            ? { open_time: tenant.open_time, close_time: tenant.close_time }
-                                            : null;
-                                        if (tenant?.closed_reason) {
-                                            return {
-                                                ...p,
-                                                store_closed_reason: tenant.closed_reason,
-                                                ...(hours ? { tenant_store_hours: hours } : {}),
-                                                ...(tenant.next_open_label ? { tenant_open_countdown: tenant.next_open_label } : {}),
-                                            };
-                                        }
-                                        if (hours) {
-                                            return { ...p, tenant_store_hours: hours };
-                                        }
-                                        return p;
-                                    })
-                                : products}
-                            mainCategories={mainCategories.length > 0 ? mainCategories : categories.filter((c) => !c.parent_id)}
-                            categories={categories}
+                            products={selfOrderProducts}
+                            mainCategories={kitchenCategories}
+                            categories={kitchenCategories}
                             searchQuery={searchQuery}
                             onSearchChange={setSearchQuery}
                             onSearch={() => setIsSearching(false)}
@@ -2070,7 +2136,10 @@ export default function Menu({
                             }}
                             compactHeaderLayout={true}
                             embedHeaderInScroll={true}
-                            gridLayoutClass="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2"
+                            simpleCards={true}
+                            showViewModeToggle={false}
+                            initialFilterExpanded={false}
+                            gridLayoutClass="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
                             scrollIntro={
                                 <div className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
                                     <div className="min-w-0">
@@ -2101,7 +2170,7 @@ export default function Menu({
                         }`}
                     >
                         <div className="border-b border-slate-100 px-4 py-3">
-                            <div className="flex items-center justify-between gap-3">
+                            <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3">
                                 <p className="text-sm font-bold text-slate-900">
                                     Pesanan saya
                                     {editableOrder?.order_number ? (
@@ -2117,9 +2186,10 @@ export default function Menu({
                         </div>
 
                         <div className="min-h-0 flex-1 overflow-y-auto">
-                            <div className="p-3 pb-36">
+                            <div className="mx-auto w-full max-w-3xl p-3 pb-36 lg:p-5 lg:pb-36">
+                                <SubmitErrorAlert errors={submitErrors} />
                                 {normalizedCarts.length > 0 ? (
-                                    <div className="space-y-2">
+                                    <div className={`${submitErrors.length ? "mt-3 " : ""}space-y-2`}>
                                         {normalizedCarts.map((item) => {
                                             const fallbackProduct = productsById[Number(item.product_id || 0)] || item.product;
                                             const pricingItem = pricingItemsByCartId[item.id];
@@ -2141,6 +2211,7 @@ export default function Menu({
                                                     onQtyChange={handleUpdateQty}
                                                     onRemoveItem={handleRemoveFromCart}
                                                     highlightRewardProductIds={recentRewardProductIds}
+                                                    simple={true}
                                                 />
                                             );
                                         })}
@@ -2165,13 +2236,10 @@ export default function Menu({
 
                         {/* Tombol lanjut ke bayar — sticky bottom */}
                         <div className="border-t border-slate-100 bg-white p-3.5 pb-[calc(env(safe-area-inset-bottom,0px)+0.85rem)] shadow-[0_-10px_25px_-5px_rgba(0,0,0,0.05)]">
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between text-xs">
-                                    <span className="font-medium text-slate-500">{customer?.name || "Pelanggan"}</span>
-                                    <div className="text-right">
-                                        <span className="text-[11px] text-slate-400">Total Pembayaran: </span>
-                                        <span className="text-base font-extrabold text-primary-600">{formatPrice(payable)}</span>
-                                    </div>
+                            <div className="mx-auto w-full max-w-3xl space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-semibold text-slate-600">Total</span>
+                                    <span className="text-lg font-extrabold text-primary-600">{formatPrice(payable)}</span>
                                 </div>
                                 <button
                                     type="button"
@@ -2184,7 +2252,7 @@ export default function Menu({
                                     }`}
                                 >
                                     <IconCash size={18} />
-                                    <span>Lanjut ke Pembayaran ({formatPrice(payable)})</span>
+                                    <span>Lanjut ke Pembayaran</span>
                                 </button>
                             </div>
                         </div>
@@ -2195,76 +2263,41 @@ export default function Menu({
                             mobileView !== "payment" ? "hidden" : "flex"
                         }`}
                     >
-                        <div className="border-b border-slate-200 px-4 py-4">
-                            <p className="text-sm font-semibold text-slate-800">
-                                Pembayaran
+                        <div className="border-b border-slate-200 px-4 py-3">
+                            <p className="text-sm font-bold text-slate-900">
+                                Periksa dan kirim pesanan
                             </p>
                             <p className="text-xs text-slate-500">
-                                Cek total pesanan dan pilih cara bayar yang paling sesuai.
+                                Pilih cara bayar, lalu kirim ke kasir.
                             </p>
                         </div>
 
                         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 pb-36 lg:pb-4">
-                            <div className="rounded-3xl border border-sky-200 bg-[linear-gradient(135deg,_#eff6ff_0%,_#f0fdf4_45%,_#fff7ed_100%)] p-4 shadow-[0_24px_50px_-34px_rgba(14,165,233,0.35)]">
+                            <SubmitErrorAlert errors={submitErrors} />
+                            <div className="rounded-2xl border border-primary-100 bg-primary-50 p-4">
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
-                                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
-                                            Status saat ini
+                                        <p className="text-xs font-semibold text-primary-700">
+                                            {cartCount} item · Meja {table.code || table.name}
                                         </p>
                                         <p className="mt-1 text-base font-bold text-slate-900">
-                                            {paymentHeadline}
+                                            {formatPrice(payable)}
                                         </p>
                                     </div>
-                                    <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
-                                        Belum dibayar
+                                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-primary-700">
+                                        {selectedPaymentMethod?.label || "Bayar di Kasir"}
                                     </span>
                                 </div>
-                                <p className="mt-3 text-sm leading-6 text-slate-600">
+                                <p className="mt-2 text-xs leading-5 text-slate-600">
                                     {orderForm.data.payment_method === "cash"
-                                        ? "Order dari meja ini dikirim dulu ke kasir. Kasir akan mengecek dan meng-approve pembayaran seperti alur sekarang."
+                                        ? "Pesanan dikirim ke kasir dan pembayaran diselesaikan di kasir."
                                         : orderForm.data.payment_method === "bank_transfer"
-                                          ? "Order dibuat lebih dulu, lalu Anda transfer ke rekening outlet yang dipilih. Kasir/admin akan mengonfirmasi setelah dana diterima."
-                                          : "Order dibuat lebih dulu, lalu Anda bisa langsung bayar sendiri dari meja memakai tautan pembayaran otomatis."}
+                                          ? "Kirim pesanan, lalu transfer ke rekening outlet yang dipilih."
+                                          : "Kirim pesanan, lalu selesaikan pembayaran dari tautan yang tersedia."}
                                 </p>
-                                <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                                    <div className="rounded-2xl border border-sky-100 bg-white/90 p-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                                            1. Kirim order
-                                        </p>
-                                        <p className="mt-1 text-xs leading-5 text-slate-600">
-                                            {orderForm.data.payment_method === "cash"
-                                                ? "Anda kirim detail menu dan catatan ke kasir."
-                                                : "Anda kirim detail menu dan sistem menyiapkan tagihan untuk meja ini."}
-                                        </p>
-                                    </div>
-                                    <div className="rounded-2xl border border-emerald-100 bg-white/90 p-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                                            2. Verifikasi pesanan
-                                        </p>
-                                        <p className="mt-1 text-xs leading-5 text-slate-600">
-                                            {orderForm.data.payment_method === "cash"
-                                                ? "Kasir memverifikasi item, topping, promo, dan total."
-                                                : "Sistem menyiapkan tagihan sesuai item, topping, promo, dan total akhir yang sama."}
-                                        </p>
-                                    </div>
-                                    <div className="rounded-2xl border border-amber-100 bg-white/90 p-3">
-                                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                                            {orderForm.data.payment_method === "cash"
-                                                ? "3. Bayar ke kasir"
-                                                : "3. Konfirmasi pembayaran"}
-                                        </p>
-                                        <p className="mt-1 text-xs leading-5 text-slate-600">
-                                            {orderForm.data.payment_method === "cash"
-                                                ? "Pembayaran diselesaikan di kasir, bukan di halaman ini."
-                                                : orderForm.data.payment_method === "bank_transfer"
-                                                  ? "Transfer diverifikasi manual oleh kasir/admin sebelum pesanan masuk ke dapur."
-                                                  : "Setelah pembayaran sukses, pesanan otomatis lanjut diproses tanpa perlu bayar di kasir."}
-                                        </p>
-                                    </div>
-                                </div>
                             </div>
 
-                            <div className="rounded-2xl border border-violet-200 bg-[linear-gradient(135deg,_#faf5ff_0%,_#ffffff_100%)] p-4 shadow-[0_20px_45px_-34px_rgba(139,92,246,0.28)]">
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                                     Metode pembayaran
                                 </p>
@@ -2272,7 +2305,7 @@ export default function Menu({
                                     {availablePaymentMethods.map((method) => (
                                         <label
                                             key={method.value}
-                                            className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3 transition ${
+                                            className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 transition ${
                                                 orderForm.data.payment_method === method.value
                                                     ? "border-primary-300 bg-primary-50"
                                                     : "border-slate-200 bg-slate-50"
@@ -2284,6 +2317,12 @@ export default function Menu({
                                                 value={method.value}
                                                 checked={orderForm.data.payment_method === method.value}
                                                 onChange={() => {
+                                                    setSubmitErrors((current) =>
+                                                        current.filter(
+                                                            (error) =>
+                                                                !["payment_method", "bank_account_id"].includes(error.field)
+                                                        )
+                                                    );
                                                     orderForm.setData("payment_method", method.value);
                                                     if (method.value !== "bank_transfer") {
                                                         orderForm.setData("bank_account_id", "");
@@ -2291,14 +2330,11 @@ export default function Menu({
                                                         orderForm.setData("bank_account_id", String(bankAccounts[0].id));
                                                     }
                                                 }}
-                                                className="mt-1"
+                                                className="shrink-0"
                                             />
                                             <div className="min-w-0">
                                                 <p className="text-sm font-semibold text-slate-900">
                                                     {method.label}
-                                                </p>
-                                                <p className="mt-1 text-xs leading-5 text-slate-500">
-                                                    {method.description}
                                                 </p>
                                             </div>
                                         </label>
@@ -2325,9 +2361,14 @@ export default function Menu({
                                                         name="bank_account_id"
                                                         value={account.id}
                                                         checked={String(orderForm.data.bank_account_id) === String(account.id)}
-                                                        onChange={() =>
-                                                            orderForm.setData("bank_account_id", String(account.id))
-                                                        }
+                                                        onChange={() => {
+                                                            setSubmitErrors((current) =>
+                                                                current.filter(
+                                                                    (error) => error.field !== "bank_account_id"
+                                                                )
+                                                            );
+                                                            orderForm.setData("bank_account_id", String(account.id));
+                                                        }}
                                                     />
                                                     <div className="min-w-0">
                                                         <p className="text-sm font-semibold text-slate-900">
@@ -2349,17 +2390,16 @@ export default function Menu({
                                 ) : null}
                             </div>
 
-                            <div className="rounded-2xl border border-rose-200 bg-[linear-gradient(135deg,_#fff7f7_0%,_#ffffff_100%)] p-4 shadow-[0_18px_40px_-32px_rgba(244,63,94,0.22)]">
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4">
                                 <div className="mb-4">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        Ringkasan menu dipilih
+                                    <p className="text-sm font-bold text-slate-900">
+                                        Ringkasan pesanan
                                     </p>
                                     <div className="mt-3 space-y-2">
                                         {paymentPreviewItems.map(
                                             ({
                                                 item,
                                                 promoState,
-                                                estimatedRemainingStock,
                                                 resolvedPromoItem,
                                             }) => {
                                                 const { resolvedLine } =
@@ -2394,10 +2434,6 @@ export default function Menu({
                                                                         )}{" "}
                                                                         ×{" "}
                                                                         {item.qty}
-                                                                    </p>
-                                                                    <p className="mt-1 text-[11px] text-slate-400">
-                                                                        Perkiraan sisa stok setelah order:{" "}
-                                                                        {estimatedRemainingStock}
                                                                     </p>
                                                                 </div>
                                                                 {hasPromoApplied(
@@ -2484,7 +2520,7 @@ export default function Menu({
                                 <div className="space-y-2">
                                     <div className="flex justify-between text-sm">
                                         <span className="text-slate-500">
-                                            Subtotal Dasar
+                                            Subtotal
                                         </span>
                                         <span className="font-medium text-slate-800">
                                             {formatPrice(baseSubtotal)}
@@ -2498,40 +2534,10 @@ export default function Menu({
                                             -{formatPrice(promoDiscount)}
                                         </span>
                                     </div>
-                                    {appliedPromoGroups.length > 0 && (
-                                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                                            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                                                Promo yang sedang bekerja
-                                            </div>
-                                            <div className="max-h-20 space-y-1 overflow-y-auto pr-1">
-                                                {appliedPromoGroups.map((group) => (
-                                                    <div
-                                                        key={group.key}
-                                                        className="flex items-start justify-between gap-2 text-[10px]"
-                                                    >
-                                                        <span className="min-w-0 flex-1 break-words text-slate-600">
-                                                            {group.label}
-                                                        </span>
-                                                        <span className="whitespace-nowrap font-medium text-emerald-600">
-                                                            -{formatPrice(group.discount_total)}
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                    <div className="flex justify-between text-sm">
-                                        <span className="text-slate-500">
-                                            Subtotal Setelah Promo
-                                        </span>
-                                        <span className="font-medium text-slate-800">
-                                            {formatPrice(subtotal)}
-                                        </span>
-                                    </div>
                                     {paymentFeeTotal > 0 && (
                                         <div className="flex justify-between rounded-xl border border-amber-200 bg-[linear-gradient(135deg,_#fff7ed_0%,_#fffbeb_100%)] px-3 py-2 text-sm">
                                             <span className="font-medium text-amber-800">
-                                                Biaya layanan pembayaran
+                                                Biaya layanan
                                             </span>
                                             <span className="font-semibold text-amber-900">
                                                 {formatPrice(paymentFeeTotal)}
@@ -2550,12 +2556,12 @@ export default function Menu({
                                 </div>
                             </div>
 
-                            <div className="rounded-2xl border border-amber-200 bg-[linear-gradient(135deg,_#fffaf0_0%,_#ffffff_100%)] p-4 shadow-[0_20px_42px_-34px_rgba(245,158,11,0.25)]">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Catatan umum order
+                            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                                <p className="text-sm font-bold text-slate-900">
+                                    Catatan <span className="font-normal text-slate-400">(opsional)</span>
                                 </p>
                                 <textarea
-                                    rows={4}
+                                    rows={3}
                                     value={orderNotesDraft}
                                     onFocus={() => {
                                         orderNotesFocusedRef.current = true;
@@ -2567,85 +2573,11 @@ export default function Menu({
                                         orderNotesFocusedRef.current = false;
                                         orderForm.setData("notes", event.target.value);
                                     }}
-                                    placeholder="Catatan umum untuk kasir atau dapur"
+                                    placeholder="Contoh: antarkan bersamaan"
                                     className="mt-3 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-primary-500 focus:bg-white focus:ring-4 focus:ring-primary-100"
                                 />
                             </div>
 
-                            <div className="rounded-2xl border border-cyan-200 bg-[linear-gradient(135deg,_#ecfeff_0%,_#ffffff_100%)] p-4 shadow-[0_20px_42px_-34px_rgba(6,182,212,0.22)]">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Riwayat pelanggan
-                                </p>
-                                <div className="mt-3 space-y-2">
-                                    {recentOrders.length > 0 ? (
-                                        recentOrders.slice(0, 3).map((order) => (
-                                            <div
-                                                key={order.id}
-                                                className="rounded-xl border border-slate-200 px-3 py-3"
-                                            >
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <p className="text-sm font-semibold text-slate-900">
-                                                            {order.order_number}
-                                                        </p>
-                                                        <p className="mt-1 text-xs text-slate-500">
-                                                            {orderStatusLabel[
-                                                                order.status
-                                                            ] || order.status}
-                                                        </p>
-                                                    </div>
-                                                    <p className="text-sm font-semibold text-slate-900">
-                                                        {formatPrice(order.grand_total)}
-                                                    </p>
-                                                </div>
-                                                {order.access_token ? (
-                                                    <Link
-                                                        href={route(
-                                                            "table-order.status",
-                                                            order.access_token
-                                                        )}
-                                                        className="mt-2 inline-flex text-xs font-semibold text-primary-600"
-                                                    >
-                                                        Lihat status
-                                                    </Link>
-                                                ) : null}
-                                            </div>
-                                        ))
-                                    ) : recentTransactions.length > 0 ? (
-                                        recentTransactions
-                                            .slice(0, 3)
-                                            .map((transaction) => (
-                                                <div
-                                                    key={transaction.id}
-                                                    className="rounded-xl border border-slate-200 px-3 py-3"
-                                                >
-                                                    <div className="flex items-start justify-between gap-3">
-                                                        <div>
-                                                            <p className="text-sm font-semibold text-slate-900">
-                                                                {transaction.invoice}
-                                                            </p>
-                                                            <p className="mt-1 text-xs text-slate-500 capitalize">
-                                                                {paymentMethodSummary(
-                                                                    transaction.payment_method,
-                                                                    transaction.payment_status
-                                                                )}
-                                                            </p>
-                                                        </div>
-                                                        <p className="text-sm font-semibold text-slate-900">
-                                                            {formatPrice(
-                                                                transaction.grand_total
-                                                            )}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            ))
-                                    ) : (
-                                        <div className="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
-                                            Belum ada riwayat pesanan.
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
                         </div>
 
                         <div className="hidden flex-shrink-0 border-t border-slate-200 bg-slate-50 p-3 lg:block">
@@ -2724,34 +2656,23 @@ export default function Menu({
             {cartCount > 0 && mobileView === "products" ? (
                 <button
                     type="button"
-                    onPointerDown={(event) =>
-                        startFloatingCartDrag(event.clientX, event.clientY)
-                    }
-                    onClick={() => {
-                        if (floatingCartDragRef.current.moved) {
-                            floatingCartDragRef.current.moved = false;
-                            return;
-                        }
-
-                        openCartTab();
-                    }}
-                    className="fixed z-[55] flex min-w-[164px] max-w-[220px] items-center justify-between gap-3 rounded-2xl bg-slate-950/95 px-4 py-3 text-left text-white shadow-[0_18px_38px_-18px_rgba(15,23,42,0.75)] backdrop-blur active:scale-[0.99]"
-                    style={{
-                        left: `${floatingCartPosition.x}px`,
-                        bottom: `${floatingCartPosition.y}px`,
-                    }}
+                    onClick={() => setMobileView("cart")}
+                    className="fixed bottom-5 right-4 z-40 flex min-w-[190px] items-center justify-between gap-4 rounded-2xl bg-slate-950 px-4 py-3 text-left text-white shadow-[0_18px_45px_-18px_rgba(15,23,42,0.85)] transition active:scale-[0.98] lg:right-6"
                 >
-                    <div className="min-w-0">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">
-                            Keranjang
-                        </p>
-                        <p className={`truncate text-sm font-bold transition-colors ${isLoadingPricing ? 'text-white/70 animate-pulse' : 'text-white'}`}>
-                            {formatPrice(payable)}
-                        </p>
-                    </div>
-                    <div className="shrink-0 rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold text-white">
-                        {cartCount}
-                    </div>
+                    <span className="flex items-center gap-3">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10">
+                            <IconShoppingCart size={19} />
+                        </span>
+                        <span>
+                            <span className="block text-xs text-slate-300">
+                                {cartCount} item
+                            </span>
+                            <span className="block text-sm font-bold">
+                                Lihat pesanan
+                            </span>
+                        </span>
+                    </span>
+                    <span className="text-sm font-bold">{formatPrice(payable)}</span>
                 </button>
             ) : null}
 
@@ -2780,6 +2701,7 @@ export default function Menu({
                     onClose={closeModifierModal}
                     onSubmit={submitModifierModal}
                     isSubmitting={isModifierModalSubmitting}
+                    simpleFlow={true}
                 />
             </Suspense>
         </>

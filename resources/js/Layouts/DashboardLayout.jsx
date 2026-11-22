@@ -9,7 +9,7 @@ import PWAUpdateControl from "@/Components/PWAUpdateControl";
 import { Toaster, toast } from "react-hot-toast";
 import { useTheme } from "@/Context/ThemeSwitcherContext";
 
-export default function AppLayout({ children }) {
+export default function AppLayout({ children, compactHome = false }) {
     const { darkMode, themeSwitcher } = useTheme();
     const { auth, security, flash } = usePage().props;
     const lastFlashSignatureRef = useRef(null);
@@ -114,7 +114,8 @@ export default function AppLayout({ children }) {
                     darkMode={darkMode}
                 />
                 <main className="dashboard-scrollbar flex-1 overflow-y-auto">
-                    <div className="w-full py-6 px-4 md:px-6 lg:px-8 pb-20 md:pb-6">
+                    <div className={`w-full px-4 pb-20 md:px-6 md:pb-6 lg:px-8 ${compactHome ? "py-4 md:py-5" : "py-6"}`}>
+                        {!compactHome && (
                         <div className="mb-4 print:hidden">
                             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
                                 <div>
@@ -145,6 +146,7 @@ export default function AppLayout({ children }) {
                                 </div>
                             ) : null}
                         </div>
+                        )}
                         {showSecurityWarnings && (
                             <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
                                 <p className="text-sm font-semibold">

@@ -5760,18 +5760,18 @@ export default function Index({
         <>
             <Head title="Transaksi" />
 
-            <div className="relative flex h-[calc(100vh-4rem)] flex-col overflow-hidden bg-slate-100 dark:bg-slate-950">
-                <div className="grid grid-cols-3 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            <div className="relative flex h-[calc(100vh-4rem)] flex-col overflow-hidden bg-slate-100 pb-[4.5rem] dark:bg-slate-950 md:pb-0">
+                <div className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_30px_-20px_rgba(15,23,42,0.45)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95 md:static md:z-auto md:border-b md:border-t-0 md:bg-white md:pb-0 md:shadow-none md:backdrop-blur-none dark:md:bg-slate-900">
                     <button
                         type="button"
                         onClick={() => setMobileView("products")}
-                        className={`flex items-center justify-center gap-2 px-3 py-3 text-sm font-semibold transition-colors ${
+                        className={`flex flex-col items-center justify-center gap-1 px-3 py-2.5 text-xs font-semibold transition-colors md:flex-row md:gap-2 md:py-3 md:text-sm ${
                             mobileView === "products"
                                 ? "border-b-2 border-primary-500 text-primary-600 dark:text-primary-300"
                                 : "text-slate-500 dark:text-slate-400"
                         }`}
                     >
-                        <IconShoppingCart size={18} />
+                        <IconShoppingCart size={21} />
                         <span>Produk</span>
                     </button>
                     <button
@@ -5790,13 +5790,13 @@ export default function Index({
                             }
                             setMobileView("cart");
                         }}
-                        className={`flex items-center justify-center gap-2 px-3 py-3 text-sm font-semibold transition-colors ${
+                        className={`flex flex-col items-center justify-center gap-1 px-3 py-2.5 text-xs font-semibold transition-colors md:flex-row md:gap-2 md:py-3 md:text-sm ${
                             mobileView === "cart"
                                 ? "border-b-2 border-primary-500 text-primary-600 dark:text-primary-300"
                                 : "text-slate-500 dark:text-slate-400"
                         }`}
                     >
-                        <IconReceipt size={18} />
+                        <IconReceipt size={21} />
                         <span className="inline-flex items-center gap-1">
                             Keranjang
                             {cartCount > 0 && (
@@ -5809,35 +5809,30 @@ export default function Index({
                     <button
                         type="button"
                         onClick={openPaymentInfoTab}
-                        className={`flex items-center justify-center gap-2 px-2 py-3 text-center text-sm font-semibold transition-colors ${
+                        className={`flex flex-col items-center justify-center gap-1 px-2 py-2.5 text-center text-xs font-semibold transition-colors md:flex-row md:gap-2 md:py-3 md:text-sm ${
                             mobileView === "payment"
                                 ? "border-b-2 border-primary-500 text-primary-600 dark:text-primary-300"
                                 : "text-slate-500 dark:text-slate-400"
                         }`}
                     >
-                        <IconCash size={18} />
-                        <span className="truncate">Info Pembayaran</span>
+                        <IconCash size={21} />
+                        <span className="truncate">Bayar</span>
                     </button>
                 </div>
 
                 <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/60 lg:px-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                Utilitas Kasir
-                            </p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                Cetak karcis parkir manual ke printer kasir dan pantau antrean print.
-                            </p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                            Aksi Cepat
+                        </p>
+                        <div className="flex items-center gap-2">
                             <button
                                 type="button"
                                 onClick={() => setIsPrintJobsModalOpen(true)}
                                 className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-primary-300 hover:text-primary-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                             >
                                 <IconPrinter size={14} />
-                                Antrian Print
+                                <span className="hidden sm:inline">Antrian Print</span>
                             </button>
                             <button
                                 type="button"
@@ -5845,7 +5840,7 @@ export default function Index({
                                 className="inline-flex items-center gap-2 rounded-full bg-primary-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-primary-700"
                             >
                                 <IconReceipt2 size={14} />
-                                Print Karcis Parkir
+                                <span className="hidden sm:inline">Karcis Parkir</span>
                             </button>
                         </div>
                     </div>
@@ -6268,6 +6263,15 @@ export default function Index({
                             }
                             onLoadMoreProducts={loadMoreProducts}
                             isLoadingMoreProducts={isLoadingMoreProducts}
+                            initialViewMode="grid"
+                            persistViewMode={false}
+                            compactHeaderLayout
+                            showFilterSummary={false}
+                            showViewModeToggle={false}
+                            simpleCards
+                            initialFilterExpanded={false}
+                            storageNamespace="pos:simple-product-grid"
+                            gridLayoutClass="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6"
                         />
                     </div>
 
@@ -6282,11 +6286,6 @@ export default function Index({
                                 <div>
                                     <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
                                         Keranjang
-                                    </p>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                        {isCartSyncing
-                                            ? "Item sedang dikirim ke server. Keranjang akan terbarui otomatis."
-                                            : "Fokus ke daftar item yang sedang dipesan."}
                                     </p>
                                 </div>
                                 <div className="flex flex-wrap items-center justify-end gap-2">

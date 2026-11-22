@@ -13,6 +13,7 @@ use App\Models\ProductOutletStock;
 use App\Models\TableOrder;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -77,6 +78,7 @@ class TableOrderFlowTest extends TestCase
             "public_table_order.customer_id.{$outlet->id}" => $customer->id,
         ])->post(route('table-order.store', $table->qr_token), [
             'notes' => 'Tolong cepat',
+            'payment_method' => 'cash',
             'items' => [
                 [
                     'product_id' => $product->id,
@@ -87,7 +89,8 @@ class TableOrderFlowTest extends TestCase
                     ],
                 ],
             ],
-        ])->assertRedirect();
+        ])->assertRedirect()
+            ->assertSessionHasNoErrors();
 
         $this->assertDatabaseHas('table_orders', [
             'outlet_id' => $outlet->id,
@@ -106,6 +109,93 @@ class TableOrderFlowTest extends TestCase
             'unit_price' => 5000,
             'total_price' => 10000,
         ]);
+    }
+
+    public function test_public_table_order_returns_detailed_validation_errors_without_creating_order(): void
+    {
+        $outlet = $this->createOutlet();
+        $table = DiningTable::create([
+            'outlet_id' => $outlet->id,
+            'name' => 'Meja Validasi',
+            'code' => 'V1',
+            'qr_token' => 'table-validation-token',
+            'status' => 'active',
+            'self_order_enabled' => true,
+            'sort_order' => 1,
+        ]);
+        $product = $this->createProduct($outlet);
+        $customer = Customer::create([
+            'name' => 'Pelanggan Validasi',
+            'no_telp' => '081234567890',
+            'address' => 'Alamat validasi',
+        ]);
+
+        $this->withSession([
+            "public_table_order.customer_id.{$outlet->id}" => $customer->id,
+        ])->postJson(route('table-order.store', $table->qr_token), [
+            'items' => [
+                [
+                    'product_id' => $product->id,
+                    'qty' => 0,
+                ],
+            ],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors(['payment_method', 'items.0.qty'])
+            ->assertJsonPath('errors.payment_method.0', 'Pilih metode pembayaran sebelum mengirim pesanan.')
+            ->assertJsonFragment([
+                'items.0.qty' => ['Jumlah minimal setiap item adalah 1.'],
+            ]);
+
+        $this->assertDatabaseCount('table_orders', 0);
+    }
+
+    public function test_public_table_order_returns_clear_error_when_outlet_stock_is_empty(): void
+    {
+        $outlet = $this->createOutlet();
+        $table = DiningTable::create([
+            'outlet_id' => $outlet->id,
+            'name' => 'Meja Stok',
+            'code' => 'S1',
+            'qr_token' => 'table-stock-token',
+            'status' => 'active',
+            'self_order_enabled' => true,
+            'sort_order' => 1,
+        ]);
+        $product = $this->createProduct($outlet, ['title' => 'Ayam Goreng']);
+        ProductOutletStock::query()
+            ->where('outlet_id', $outlet->id)
+            ->where('product_id', $product->id)
+            ->update(['stock' => 0]);
+        $customer = Customer::create([
+            'name' => 'Pelanggan Stok',
+            'no_telp' => '081234567891',
+            'address' => 'Alamat pelanggan',
+        ]);
+
+        $this->get(route('table-order.show', $table->qr_token))
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('products.0.id', $product->id)
+                ->where('products.0.stock', 0));
+
+        $this->withSession([
+            "public_table_order.customer_id.{$outlet->id}" => $customer->id,
+        ])->postJson(route('table-order.store', $table->qr_token), [
+            'payment_method' => 'cash',
+            'items' => [
+                [
+                    'product_id' => $product->id,
+                    'qty' => 1,
+                ],
+            ],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors(['items.0.qty'])
+            ->assertJsonFragment([
+                'items.0.qty' => [
+                    'Stok Ayam Goreng habis. Hapus menu ini dari keranjang atau pilih menu lain.',
+                ],
+            ]);
+
+        $this->assertDatabaseCount('table_orders', 0);
     }
 
     public function test_public_table_order_grand_total_sums_multiple_items_with_modifiers(): void
@@ -154,6 +244,7 @@ class TableOrderFlowTest extends TestCase
         $this->withSession([
             "public_table_order.customer_id.{$outlet->id}" => $customer->id,
         ])->post(route('table-order.store', $table->qr_token), [
+            'payment_method' => 'cash',
             'items' => [
                 [
                     'product_id' => $firstProduct->id,
@@ -168,7 +259,8 @@ class TableOrderFlowTest extends TestCase
                     ],
                 ],
             ],
-        ])->assertRedirect();
+        ])->assertRedirect()
+            ->assertSessionHasNoErrors();
 
         $order = TableOrder::query()->latest('id')->firstOrFail();
 
@@ -212,6 +304,7 @@ class TableOrderFlowTest extends TestCase
         $this->withSession([
             "public_table_order.customer_id.{$outlet->id}" => $customer->id,
         ])->postJson(route('table-order.preview', $table->qr_token), [
+            'payment_method' => 'cash',
             'items' => [
                 [
                     'product_id' => $product->id,
@@ -462,6 +555,7 @@ class TableOrderFlowTest extends TestCase
             'category_id' => $category->id,
             'tenant_outlet_id' => $outlet->id,
             'supports_modifiers' => false,
+            'publish_status' => 'approved',
             'stock' => 10,
         ], $overrides));
 

@@ -9,11 +9,13 @@ export default function LinkItem({
     active = false,
     title,
     sidebarOpen,
+    variant = "default",
     ...props
 }) {
     const { auth } = usePage().props;
     const isActive = active === true;
     const canAccess = isSuperAdmin(auth) || access === true;
+    const isPosVariant = variant === "pos";
 
     if (!canAccess) return null;
 
@@ -31,13 +33,17 @@ export default function LinkItem({
         return (
             <Link
                 href={href}
-                className={`${baseClasses} ${activeClasses} px-4 py-2.5 text-sm font-medium`}
+                className={`${baseClasses} ${activeClasses} ${
+                    isPosVariant
+                        ? "mx-3 mb-2 rounded-2xl px-4 py-3 text-base font-semibold"
+                        : "px-4 py-2.5 text-sm font-medium"
+                }`}
                 {...props}
             >
                 <span
-                    className={
-                        isActive ? "text-primary-600 dark:text-primary-400" : ""
-                    }
+                    className={`flex shrink-0 items-center justify-center ${
+                        isPosVariant ? "h-9 w-9 rounded-xl bg-slate-100 dark:bg-slate-800" : ""
+                    } ${isActive ? "text-primary-600 dark:text-primary-400" : ""}`}
                 >
                     {icon}
                 </span>

@@ -42,42 +42,27 @@ const formatCurrency = (value = 0) =>
 // Stat Card Component
 function StatCard({ title, value, subtitle, icon: Icon, gradient, trend }) {
     return (
-        <div
-            className={`
-            relative overflow-hidden rounded-2xl p-5
-            bg-gradient-to-br ${gradient}
-            text-white shadow-lg
-        `}
-        >
-            {/* Background Pattern */}
-            <div className="absolute top-0 right-0 w-32 h-32 opacity-20">
-                <Icon
-                    size={128}
-                    strokeWidth={0.5}
-                    className="transform translate-x-8 -translate-y-8"
-                />
-            </div>
-
-            <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-3">
-                    <div className="p-2 rounded-xl bg-white/20">
-                        <Icon size={20} strokeWidth={1.5} />
-                    </div>
-                    <span className="text-sm font-medium opacity-90">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-primary-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                         {title}
-                    </span>
+                    </p>
+                    <p className="mt-2 truncate text-xl font-bold text-slate-900 dark:text-white sm:text-2xl">
+                        {value}
+                    </p>
                 </div>
-
-                <p className="text-3xl font-bold">{value}</p>
-
-                {subtitle && (
-                    <p className="mt-2 text-sm opacity-80 flex items-center gap-1">
+                <div className={`rounded-2xl bg-gradient-to-br p-3 text-white ${gradient}`}>
+                    <Icon size={22} strokeWidth={1.7} />
+                </div>
+            </div>
+            {subtitle && (
+                    <p className="mt-2 hidden items-center gap-1 text-xs text-slate-500 dark:text-slate-400 sm:flex">
                         {trend === "up" && <IconArrowUpRight size={14} />}
                         {trend === "down" && <IconArrowDownRight size={14} />}
                         {subtitle}
                     </p>
-                )}
-            </div>
+            )}
         </div>
     );
 }
@@ -88,42 +73,32 @@ function TargetCard({ title, current, target, icon: Icon }) {
     const isAchieved = percentage >= 100;
 
     return (
-        <div className="relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br from-indigo-500 to-indigo-700 text-white shadow-lg">
-            {/* Background Pattern */}
-            <div className="absolute top-0 right-0 w-32 h-32 opacity-20">
-                <Icon
-                    size={128}
-                    strokeWidth={0.5}
-                    className="transform translate-x-8 -translate-y-8"
-                />
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                        {title}
+                    </p>
+                    <p className="mt-2 text-xl font-bold text-slate-900 dark:text-white sm:text-2xl">{percentage.toFixed(0)}%</p>
+                </div>
+                <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-300">
+                    <Icon size={22} strokeWidth={1.7} />
+                </div>
             </div>
 
-            <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-3">
-                    <div className="p-2 rounded-xl bg-white/20">
-                        <Icon size={20} strokeWidth={1.5} />
-                    </div>
-                    <span className="text-sm font-medium opacity-90">
-                        {title}
-                    </span>
-                </div>
-
-                <p className="text-2xl font-bold">{percentage.toFixed(0)}%</p>
-
                 {/* Progress Bar */}
-                <div className="mt-3 w-full h-2 bg-white/30 rounded-full overflow-hidden">
+                <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                     <div
                         className={`h-full rounded-full transition-all duration-500 ${
-                            isAchieved ? "bg-green-400" : "bg-white"
+                            isAchieved ? "bg-success-500" : "bg-indigo-500"
                         }`}
                         style={{ width: `${percentage}%` }}
                     />
                 </div>
 
-                <p className="mt-2 text-xs opacity-80">
+                <p className="mt-2 truncate text-xs text-slate-500 dark:text-slate-400">
                     {formatCurrency(current)} / {formatCurrency(target)}
                 </p>
-            </div>
         </div>
     );
 }
@@ -131,23 +106,23 @@ function TargetCard({ title, current, target, icon: Icon }) {
 // Info Card Component
 function InfoCard({ title, value, subtitle, icon: Icon }) {
     return (
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 transition-all hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 transition-all hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700">
             <div className="flex items-center justify-between">
                 <div>
                     <p className="text-sm text-slate-500 dark:text-slate-400">
                         {title}
                     </p>
-                    <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+                    <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white sm:text-2xl">
                         {value}
                     </p>
                     {subtitle && (
-                        <p className="mt-1 text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                        <p className="mt-1 hidden items-center gap-1 text-xs text-slate-400 dark:text-slate-500 sm:flex">
                             <Icon size={14} />
                             {subtitle}
                         </p>
                     )}
                 </div>
-                <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800">
+                <div className="rounded-xl bg-slate-100 p-2.5 dark:bg-slate-800">
                     <Icon
                         size={24}
                         className="text-slate-600 dark:text-slate-400"
@@ -197,7 +172,6 @@ function ListCard({ title, subtitle, icon: Icon, children, emptyMessage }) {
 function QuickMenuCard({
     href,
     title,
-    description,
     icon: Icon,
     tone = "slate",
     featured = false,
@@ -223,32 +197,26 @@ function QuickMenuCard({
     return (
         <Link
             href={href}
-            className={`group relative overflow-hidden rounded-2xl border p-4 transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+            className={`group relative overflow-hidden rounded-2xl border p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-lg ${
                 featured
                     ? `border-transparent bg-gradient-to-br shadow-xl ${toneClasses[tone]}`
                     : toneClasses[tone]
             }`}
         >
-            <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                    <h3 className="text-base font-bold">{title}</h3>
-                    <p
-                        className={`mt-1 text-sm ${
-                            featured ? "text-white/80" : "text-slate-500 dark:text-slate-400"
-                        }`}
-                    >
-                        {description}
-                    </p>
-                </div>
+            <div className="flex items-center gap-3">
                 <div
-                    className={`rounded-xl p-2.5 ${
+                    className={`rounded-xl p-3 ${
                         featured
                             ? "bg-white/15 text-white"
                             : "bg-white/80 dark:bg-slate-800"
                     }`}
                 >
-                    <Icon size={24} strokeWidth={1.7} />
+                    <Icon size={26} strokeWidth={1.7} />
                 </div>
+                <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-sm font-bold sm:text-base">{title}</h3>
+                </div>
+                <IconArrowUpRight size={18} className={featured ? "text-white/80" : "text-slate-400"} />
             </div>
         </Link>
     );
@@ -289,7 +257,6 @@ export default function Dashboard({
     const chartInstance = useRef(null);
     const [pwaInstalled, setPwaInstalled] = useState(false);
     const [showSetupChecklist, setShowSetupChecklist] = useState(false);
-    const [quickMenuOpen, setQuickMenuOpen] = useState(false);
 
     const chartData = useMemo(() => revenueTrend ?? [], [revenueTrend]);
     const effectiveOnboardingChecklist = useMemo(
@@ -490,85 +457,71 @@ export default function Dashboard({
         <>
             <Head title="Dashboard" />
 
-            <div className="space-y-6">
+            <div className="mx-auto max-w-[1600px] space-y-4">
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
                             Dashboard
                         </h1>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                        <p className="hidden text-sm text-slate-500 dark:text-slate-400 sm:block">
                             {isTenantDashboard
                                 ? `Ringkasan aktivitas ${workspace?.active_outlet?.name || "tenant aktif"}`
                                 : "Ringkasan aktivitas bisnis Anda"}
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
-                        <PWAInstallButton compact />
-                        <Link
-                            href={route("transactions.index")}
-                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium transition-colors shadow-lg shadow-primary-500/30"
-                        >
-                            <IconShoppingCart size={18} />
-                            <span>Transaksi Baru</span>
-                        </Link>
+                        <div className="hidden sm:block">
+                            <PWAInstallButton compact />
+                        </div>
+                        {can("transactions-access") && (
+                            <Link
+                                href={route("transactions.index")}
+                                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium transition-colors shadow-lg shadow-primary-500/30"
+                            >
+                                <IconShoppingCart size={18} />
+                                <span>Transaksi Baru</span>
+                            </Link>
+                        )}
                     </div>
                 </div>
 
                 {quickMenus.length > 0 && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <button
-                            type="button"
-                            onClick={() => setQuickMenuOpen((v) => !v)}
-                            className="flex w-full items-center justify-between gap-3 text-left"
-                        >
-                            <div>
-                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                                    Quick Menu
-                                </h2>
-                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                    Shortcut inti ke area operasional utama.
-                                </p>
-                            </div>
-                            <div className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                                {quickMenuOpen ? (
-                                    <IconChevronUp size={18} />
-                                ) : (
-                                    <IconChevronDown size={18} />
-                                )}
-                            </div>
-                        </button>
-                        {quickMenuOpen && (
-                            <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-                                {quickMenus.map((menu) => (
-                                    <QuickMenuCard
-                                        key={menu.title}
-                                        href={menu.href}
-                                        title={menu.title}
-                                        description={menu.description}
-                                        icon={menu.icon}
-                                        tone={menu.tone}
-                                        featured={menu.featured}
-                                    />
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                    <section>
+                        <div className="mb-2 flex items-center justify-between">
+                            <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                                Akses Cepat
+                            </h2>
+                            <span className="text-xs text-slate-400">Pilih menu</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
+                            {quickMenus.map((menu) => (
+                                <QuickMenuCard
+                                    key={menu.title}
+                                    href={menu.href}
+                                    title={menu.title}
+                                    icon={menu.icon}
+                                    tone={menu.tone}
+                                    featured={menu.featured}
+                                />
+                            ))}
+                        </div>
+                    </section>
                 )}
 
                 {!isTenantDashboard ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                             <div className="flex items-center gap-2">
                                 <div className="rounded-xl bg-primary-100 p-2 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300">
                                     <IconChecklist size={18} />
                                 </div>
-                                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
                                     Checklist Setup Outlet, Tenant & Kitchen
                                 </h2>
                             </div>
-                            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                            <p className="mt-2 hidden text-sm text-slate-500 dark:text-slate-400 sm:block">
                                 Progress setup operasional. Buka detail hanya saat perlu cek langkah yang belum siap.
                             </p>
                         </div>
@@ -672,8 +625,14 @@ export default function Dashboard({
                 </div>
                 ) : null}
 
-                {/* Main Stat Cards - Reorganized */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+                <section>
+                <div className="mb-2 flex items-center justify-between">
+                    <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                        Ringkasan Hari Ini
+                    </h2>
+                    <span className="text-xs text-slate-400">Outlet aktif</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
                     <StatCard
                         title="Penjualan Hari Ini"
                         value={formatCurrency(todaySales)}
@@ -709,9 +668,19 @@ export default function Dashboard({
                         gradient="from-warning-500 to-warning-600"
                     />
                 </div>
+                </section>
 
                 {/* Secondary Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <details className="group rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-900 dark:text-white">Statistik Tambahan</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Master data dan profil transaksi</p>
+                        </div>
+                        <IconChevronDown size={18} className="text-slate-400 transition group-open:rotate-180" />
+                    </summary>
+                    <div className="border-t border-slate-100 p-4 dark:border-slate-800">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                     <InfoCard
                         title="Total Kategori"
                         value={totalCategories}
@@ -739,7 +708,7 @@ export default function Dashboard({
                     />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                     <InfoCard
                         title="Transaksi Tanpa Profil Customer"
                         value={walkInTransactions}
@@ -753,6 +722,8 @@ export default function Dashboard({
                         icon={IconWallet}
                     />
                 </div>
+                    </div>
+                </details>
 
                 {/* Revenue Chart - Full Width */}
                 <ListCard
@@ -762,14 +733,14 @@ export default function Dashboard({
                     emptyMessage="Belum ada data pendapatan"
                 >
                     {chartData.length > 0 && (
-                        <div className="h-72">
+                        <div className="h-56 sm:h-72">
                             <canvas ref={chartRef} />
                         </div>
                     )}
                 </ListCard>
 
                 {/* 4-Column Bottom Widgets */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <ListCard
                         title="Shift Aktif"
                         subtitle="Pemantauan kasir"
@@ -1005,4 +976,4 @@ export default function Dashboard({
     );
 }
 
-Dashboard.layout = (page) => <DashboardLayout children={page} />;
+Dashboard.layout = (page) => <DashboardLayout compactHome children={page} />;

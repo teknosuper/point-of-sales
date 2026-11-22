@@ -24,6 +24,7 @@ class TableOrderTakeawayModifierTest extends TestCase
         $this->withSession([
             "public_table_order.customer_id.{$outlet->id}" => $customer->id,
         ])->postJson(route('table-order.store', $table->qr_token), [
+            'payment_method' => 'cash',
             'items' => [
                 [
                     'product_id' => $product->id,
@@ -46,6 +47,7 @@ class TableOrderTakeawayModifierTest extends TestCase
         $this->withSession([
             "public_table_order.customer_id.{$outlet->id}" => $customer->id,
         ])->post(route('table-order.store', $table->qr_token), [
+            'payment_method' => 'cash',
             'items' => [
                 [
                     'product_id' => $product->id,
@@ -70,6 +72,7 @@ class TableOrderTakeawayModifierTest extends TestCase
         $this->withSession([
             "public_table_order.customer_id.{$outlet->id}" => $customer->id,
         ])->post(route('table-order.store', $table->qr_token), [
+            'payment_method' => 'cash',
             'items' => [
                 [
                     'product_id' => $product->id,
@@ -90,6 +93,53 @@ class TableOrderTakeawayModifierTest extends TestCase
         $this->assertDatabaseHas('table_order_item_modifiers', [
             'name' => 'Bungkus',
         ]);
+    }
+
+    public function test_dine_in_does_not_require_take_away_only_topping(): void
+    {
+        [$outlet, $table, $product, $bungkus, $customer] = $this->createFixture();
+        $product->update(['requires_modifier_selection' => true]);
+
+        $this->withSession([
+            "public_table_order.customer_id.{$outlet->id}" => $customer->id,
+        ])->post(route('table-order.store', $table->qr_token), [
+            'payment_method' => 'cash',
+            'items' => [
+                [
+                    'product_id' => $product->id,
+                    'qty' => 1,
+                    'order_type' => 'dine_in',
+                    'modifiers' => [],
+                ],
+            ],
+        ])->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('dine_in', TableOrder::query()->latest('id')->firstOrFail()->items()->firstOrFail()->order_type);
+    }
+
+    public function test_unavailable_take_away_topping_is_not_required(): void
+    {
+        [$outlet, $table, $product, $bungkus, $customer] = $this->createFixture();
+        $product->update(['requires_modifier_selection' => true]);
+        $bungkus->update(['stock' => 0]);
+
+        $this->withSession([
+            "public_table_order.customer_id.{$outlet->id}" => $customer->id,
+        ])->post(route('table-order.store', $table->qr_token), [
+            'payment_method' => 'cash',
+            'items' => [
+                [
+                    'product_id' => $product->id,
+                    'qty' => 1,
+                    'order_type' => 'take_away',
+                    'modifiers' => [],
+                ],
+            ],
+        ])->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $this->assertDatabaseCount('table_order_item_modifiers', 0);
     }
 
     private function createFixture(): array

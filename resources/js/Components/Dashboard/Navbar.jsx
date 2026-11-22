@@ -18,7 +18,8 @@ export default function Navbar({
     currentTime = null,
     formatTime = null,
     formatDate = null,
-    activeCashierShift = null
+    activeCashierShift = null,
+    compactPos = false
 }) {
     const { auth, activeOutlet, availableOutlets, storeProfile, notificationAccess } = usePage().props;
     const menuNavigation = Menu();
@@ -130,7 +131,7 @@ export default function Navbar({
                 )}
 
                 {/* PWA Dropdown */}
-                <PWADropdown />
+                {!compactPos ? <PWADropdown /> : null}
 
                 {/* QR Orders Notification */}
                 
@@ -158,15 +159,17 @@ export default function Navbar({
                 {activeOutlet?.outlet_type === 'tenant' || activeOutlet?.outlet_type === 'kitchen' ? <OrderNotificationBell outletId={activeOutlet?.id} /> : null}
 
                 {/* Notifications */}
-                {showGeneralNotification ? <Notification /> : null}
+                {!compactPos && showGeneralNotification ? <Notification /> : null}
 
                 {/* Divider */}
-                {(showQrNotification || showGeneralNotification) ? (
+                {(showQrNotification || (!compactPos && showGeneralNotification)) ? (
                     <div className="w-px h-8 bg-slate-200 dark:bg-slate-700 mx-1" />
                 ) : null}
 
                 {/* User Dropdown */}
-                <AuthDropdown auth={auth} isMobile={isMobile} />
+                <div className={compactPos ? "hidden sm:block" : ""}>
+                    <AuthDropdown auth={auth} isMobile={isMobile} />
+                </div>
             </div>
         </header>
     );

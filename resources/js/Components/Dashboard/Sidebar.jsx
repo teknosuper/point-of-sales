@@ -11,9 +11,30 @@ import {
 } from "@/Utils/imagePlaceholder";
 import { roleLabel } from "@/Utils/rolePresentation";
 
-export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
+export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false, variant = "default" }) {
     const { auth, storeProfile, activeOutlet, availableOutlets, workspaceContext } = usePage().props;
     const menuNavigation = Menu();
+    const isPosVariant = variant === "pos";
+    const posMenuTitles = new Set([
+        "Dashboard",
+        "Kasir",
+        "Riwayat",
+        "Pesanan Meja",
+        "Shift Kasir",
+        "Layar Dapur",
+        "Papan Antar",
+        "Setoran",
+    ]);
+    const visibleNavigation = isPosVariant
+        ? [
+              {
+                  title: "Menu Kasir",
+                  details: menuNavigation
+                      .flatMap((section) => section.details)
+                      .filter((detail) => posMenuTitles.has(detail.title)),
+              },
+          ]
+        : menuNavigation;
     const user = auth?.user ?? null;
     const primaryRole = auth?.super
         ? "Super Admin"
@@ -98,7 +119,7 @@ export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
 
             {/* Navigation */}
             <nav className="dashboard-scrollbar min-h-0 flex-1 overflow-y-auto py-3">
-                {sidebarOpen && (
+                {sidebarOpen && !isPosVariant && (
                     <>
                         <div className="px-4 pb-3">
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/60">
@@ -151,7 +172,17 @@ export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
                     </>
                 )}
 
-                {menuNavigation.map((section, index) => {
+                {sidebarOpen && isPosVariant && (
+                    <div className="px-4 pb-3">
+                        <OutletSwitcher
+                            activeOutlet={activeOutlet}
+                            availableOutlets={availableOutlets}
+                            workspaceContext={workspaceContext}
+                        />
+                    </div>
+                )}
+
+                {visibleNavigation.map((section, index) => {
                     const hasPermission = section.details.some(
                         (detail) => detail.permissions === true
                     );
@@ -196,11 +227,19 @@ export default function Sidebar({ sidebarOpen, hideWhenCollapsed = false }) {
                                         <LinkItem
                                             key={idx}
                                             title={detail.title}
-                                            icon={detail.icon}
+                                            icon={
+                                                isPosVariant && React.isValidElement(detail.icon)
+                                                    ? React.cloneElement(detail.icon, {
+                                                          size: 24,
+                                                          strokeWidth: 1.8,
+                                                      })
+                                                    : detail.icon
+                                            }
                                             href={detail.href}
                                             access={detail.permissions}
                                             active={detail.active}
                                             sidebarOpen={sidebarOpen}
+                                            variant={isPosVariant ? "pos" : "default"}
                                         />
                                     );
                                 })}

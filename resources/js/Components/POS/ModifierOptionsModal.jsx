@@ -10,6 +10,7 @@ import {
     IconShoppingBag,
 } from "@/Utils/icons";
 import { PROMO_TOTAL_LABEL, formatRuleItems } from "@/Utils/pricingRules";
+import { isModifierOptionAvailable } from "@/Pages/Public/TableOrder/utils/tableOrderHelpers";
 
 const formatPrice = (value = 0) =>
     Number(value || 0).toLocaleString("id-ID", {
@@ -27,10 +28,13 @@ const normalizeModifierGroupName = (value) => {
 const resolveSelectionSummary = (group) => {
     const selectionMode =
         String(group?.selection_mode || "optional").trim() || "optional";
-    const minSelect = Math.max(
-        selectionMode === "optional" ? 0 : 1,
-        Number(group?.min_select ?? 0)
-    );
+    const minSelect =
+        group?.resolved_min_select !== undefined
+            ? Number(group.resolved_min_select)
+            : Math.max(
+                  selectionMode === "optional" ? 0 : 1,
+                  Number(group?.min_select ?? 0)
+              );
     const maxSelectRaw = Number(group?.max_select ?? 0);
     const maxSelect =
         selectionMode === "single" ? 1 : maxSelectRaw > 0 ? maxSelectRaw : null;
@@ -74,6 +78,7 @@ export default function ModifierOptionsModal({
     onClose,
     onSubmit,
     isSubmitting = false,
+    simpleFlow = false,
 }) {
     const applicableModifierOptions = (product?.modifier_options || []).filter(
         (option) => {
@@ -90,7 +95,10 @@ export default function ModifierOptionsModal({
             return scope === orderType;
         }
     );
-    const hasModifierOptions = applicableModifierOptions.length > 0;
+    const selectableModifierOptions = applicableModifierOptions.filter((option) =>
+        isModifierOptionAvailable(option, quantity)
+    );
+    const hasSelectableModifierOptions = selectableModifierOptions.length > 0;
     const selectedOptionIdSet = new Set(
         (selectedModifierOptionIds || []).map((id) => Number(id || 0))
     );
@@ -119,41 +127,50 @@ export default function ModifierOptionsModal({
     const modifierGroups = Object.values(groupedModifierOptions);
     const requiresSelection = Boolean(product?.requires_modifier_selection);
     const groupValidation = modifierGroups.map((group) => {
+        const selectableOptions = group.options.filter((option) =>
+            isModifierOptionAvailable(option, quantity)
+        );
+        const ruleOption = selectableOptions[0] || group;
         const selectionMode =
-            String(group.selection_mode || "optional").trim() || "optional";
+            String(ruleOption.selection_mode || "optional").trim() || "optional";
         const minSelect = Math.max(
             selectionMode === "optional" ? 0 : 1,
-            Number(group.min_select ?? 0)
+            Number(ruleOption.min_select ?? 0)
         );
-        const maxSelectRaw = Number(group.max_select ?? 0);
+        const maxSelectRaw = Number(ruleOption.max_select ?? 0);
         const maxSelect =
             selectionMode === "single"
                 ? 1
                 : maxSelectRaw > 0
                   ? maxSelectRaw
                   : null;
-        const selectedCount = group.options.filter((option) =>
+        const selectedCount = selectableOptions.filter((option) =>
             selectedOptionIdSet.has(Number(option.id || 0))
         ).length;
+        const effectiveMinSelect = Math.min(minSelect, selectableOptions.length);
 
         return {
             ...group,
+            selectableOptions,
             selectedCount,
-            minSelect,
+            minSelect: effectiveMinSelect,
+            resolved_min_select: effectiveMinSelect,
             maxSelect,
             isValid:
-                selectedCount >= minSelect &&
+                selectedCount >= effectiveMinSelect &&
                 (maxSelect === null || selectedCount <= maxSelect),
         };
     });
     const selectionIsRequired =
-        hasModifierOptions &&
+        hasSelectableModifierOptions &&
         (requiresSelection || groupValidation.some((group) => group.minSelect > 0));
+    const selectableSelectedCount = selectableModifierOptions.filter((option) =>
+        selectedOptionIdSet.has(Number(option.id || 0))
+    ).length;
     const hasSatisfiedRequiredSelection =
-        groupValidation.length > 0
-            ? groupValidation.every((group) => group.isValid)
-            : selectedOptionIdSet.size > 0;
-    const modifierStatus = hasModifierOptions
+        groupValidation.every((group) => group.isValid) &&
+        (!requiresSelection || selectableSelectedCount > 0);
+    const modifierStatus = hasSelectableModifierOptions
         ? selectionIsRequired
             ? {
                   label: "Pilih topping",
@@ -176,12 +193,12 @@ export default function ModifierOptionsModal({
               className:
                   "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200",
           };
-    const heroClass = hasModifierOptions
+    const heroClass = hasSelectableModifierOptions
         ? selectionIsRequired
             ? "border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 dark:border-amber-900/40 dark:from-amber-950/20 dark:via-slate-900 dark:to-orange-950/20"
             : "border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50 dark:border-sky-900/40 dark:from-sky-950/20 dark:via-slate-900 dark:to-cyan-950/20"
         : "border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800";
-    const priceClass = hasModifierOptions
+    const priceClass = hasSelectableModifierOptions
         ? selectionIsRequired
             ? "bg-amber-950 text-amber-50 shadow-amber-950/15 dark:bg-amber-500/20 dark:text-amber-100"
             : "bg-sky-950 text-sky-50 shadow-sky-950/15 dark:bg-sky-500/20 dark:text-sky-100"
@@ -214,7 +231,7 @@ export default function ModifierOptionsModal({
         setStep("jenis");
         setToppingAlert(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [product?.id, hasModifierOptions]);
+    }, [product?.id, hasSelectableModifierOptions]);
 
     React.useEffect(() => {
         // Setiap modal dibuka atau langkah berubah, langsung arahkan scroll ke
@@ -254,7 +271,7 @@ export default function ModifierOptionsModal({
 
     const handleNextToToping = () => {
         setToppingAlert(false);
-        setStep(hasModifierOptions ? "topping" : "notes");
+        setStep(hasSelectableModifierOptions ? "topping" : "notes");
     };
 
     const handleBackToJenis = () => {
@@ -266,6 +283,234 @@ export default function ModifierOptionsModal({
         setToppingAlert(false);
         onSubmit?.(true);
     };
+
+    const handleSimpleSubmit = () => {
+        if (selectionIsRequired && !hasSatisfiedRequiredSelection) {
+            setToppingAlert(true);
+            scrollToSection(toppingSectionRef.current);
+            return;
+        }
+
+        handleSubmit();
+    };
+
+    if (simpleFlow) {
+        const simpleTotal = promoBenefit
+            ? promoBenefit.lineTotal
+            : (Number(product.sell_price) + selectedModifierTotal) *
+              Math.max(1, Number(quantity || 1));
+
+        return (
+            <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+                <div
+                    className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
+                    onClick={onClose}
+                />
+                <div className="relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl dark:bg-slate-900">
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+                        <div className="min-w-0">
+                            <h3 className="truncate text-base font-bold text-slate-900 dark:text-white">
+                                {product.title}
+                            </h3>
+                            <p className="mt-0.5 text-sm font-bold text-primary-600 dark:text-primary-400">
+                                {formatPrice(product.sell_price)}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            disabled={isSubmitting}
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300"
+                            aria-label="Tutup"
+                        >
+                            <IconX size={18} />
+                        </button>
+                    </div>
+
+                    <div
+                        ref={modalScrollRef}
+                        className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4"
+                    >
+                        <section ref={jenisSectionRef}>
+                            <p className="mb-2 text-sm font-bold text-slate-900 dark:text-white">
+                                Penyajian
+                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => onOrderTypeChange?.("dine_in")}
+                                    className={`inline-flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-semibold transition ${
+                                        orderType === "dine_in"
+                                            ? "border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"
+                                            : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    }`}
+                                >
+                                    <IconToolsKitchen2 size={17} />
+                                    Makan di sini
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => onOrderTypeChange?.("take_away")}
+                                    className={`inline-flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-semibold transition ${
+                                        orderType === "take_away"
+                                            ? "border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300"
+                                            : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    }`}
+                                >
+                                    <IconShoppingBag size={17} />
+                                    Bungkus
+                                </button>
+                            </div>
+                        </section>
+
+                        {hasSelectableModifierOptions ? (
+                            <section ref={toppingSectionRef} className="space-y-4">
+                                {groupValidation.map((group) => (
+                                    <div key={group.group_name}>
+                                        <div className="mb-2 flex items-center justify-between gap-3">
+                                            <p className="text-sm font-bold text-slate-900 dark:text-white">
+                                                {group.group_name}
+                                            </p>
+                                            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                {group.minSelect > 0
+                                                    ? `Pilih ${group.minSelect}${group.maxSelect && group.maxSelect !== group.minSelect ? `–${group.maxSelect}` : ""}`
+                                                    : group.maxSelect
+                                                      ? `Maks. ${group.maxSelect}`
+                                                      : "Opsional"}
+                                            </span>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {group.options.map((option) => {
+                                                const active = selectedOptionIdSet.has(
+                                                    Number(option.id || 0)
+                                                );
+                                                const isOutOfStock =
+                                                    !isModifierOptionAvailable(option, quantity);
+
+                                                return (
+                                                    <button
+                                                        key={option.id}
+                                                        type="button"
+                                                        onClick={() =>
+                                                            !isOutOfStock &&
+                                                            onToggleModifierOption?.(option.id)
+                                                        }
+                                                        disabled={isOutOfStock}
+                                                        className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-3 text-left transition ${
+                                                            isOutOfStock
+                                                                ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-50 dark:border-slate-800 dark:bg-slate-800/50"
+                                                                : active
+                                                                  ? "border-primary-500 bg-primary-50 dark:bg-primary-950/30"
+                                                                  : "border-slate-200 dark:border-slate-700"
+                                                        }`}
+                                                    >
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                                                {option.name}
+                                                            </p>
+                                                            {isOutOfStock ? (
+                                                                <p className="mt-0.5 text-xs text-danger-600">
+                                                                    Habis
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                        <div className="flex shrink-0 items-center gap-3">
+                                                            <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+                                                                {Number(option.price || 0) > 0
+                                                                    ? `+${formatPrice(option.price)}`
+                                                                    : "Gratis"}
+                                                            </span>
+                                                            <span
+                                                                className={`h-5 w-5 rounded-full border-2 ${
+                                                                    active
+                                                                        ? "border-primary-500 bg-primary-500 ring-2 ring-primary-100"
+                                                                        : "border-slate-300 dark:border-slate-600"
+                                                                }`}
+                                                            />
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                                {toppingAlert ? (
+                                    <p className="text-xs font-semibold text-danger-600">
+                                        Lengkapi pilihan wajib.
+                                    </p>
+                                ) : null}
+                            </section>
+                        ) : null}
+
+                        <section>
+                            <label className="text-sm font-bold text-slate-900 dark:text-white">
+                                Catatan <span className="font-normal text-slate-400">(opsional)</span>
+                            </label>
+                            <textarea
+                                ref={notesFieldRef}
+                                rows={2}
+                                value={notesValue || ""}
+                                onChange={(event) =>
+                                    onNotesChange?.(event.target.value)
+                                }
+                                placeholder="Contoh: tanpa bawang"
+                                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                            />
+                        </section>
+                    </div>
+
+                    <div className="border-t border-slate-200 bg-white p-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] dark:border-slate-800 dark:bg-slate-900">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                            {!cartTargetId ? (
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            onQuantityChange?.(
+                                                Math.max(1, Number(quantity || 1) - 1)
+                                            )
+                                        }
+                                        className="h-9 w-9 rounded-xl border border-slate-200 text-lg font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        −
+                                    </button>
+                                    <span className="min-w-8 text-center text-sm font-bold text-slate-900 dark:text-white">
+                                        {quantity}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            onQuantityChange?.(Number(quantity || 1) + 1)
+                                        }
+                                        className="h-9 w-9 rounded-xl border border-slate-200 text-lg font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            ) : (
+                                <span className="text-sm text-slate-500">Total</span>
+                            )}
+                            <p className="text-lg font-bold text-slate-900 dark:text-white">
+                                {formatPrice(simpleTotal)}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleSimpleSubmit}
+                            disabled={isSubmitting}
+                            className="h-12 w-full rounded-xl bg-primary-600 text-sm font-bold text-white transition hover:bg-primary-700 disabled:opacity-50"
+                        >
+                            {isSubmitting
+                                ? "Menyimpan..."
+                                : cartTargetId
+                                  ? "Simpan perubahan"
+                                  : "Tambah ke keranjang"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -412,7 +657,7 @@ export default function ModifierOptionsModal({
                     <div className="mx-5 mt-4 flex items-center gap-2">
                         {[
                             { key: "jenis", label: "1. Penyajian" },
-                            hasModifierOptions
+                            hasSelectableModifierOptions
                                 ? { key: "topping", label: "2. Topping" }
                                 : { key: "menu", label: "2. Menu" },
                             { key: "notes", label: "3. Keterangan" },
@@ -614,7 +859,7 @@ export default function ModifierOptionsModal({
                         </div>
                     ) : null}
 
-                    {hasModifierOptions && step === "topping" ? (
+                    {hasSelectableModifierOptions && step === "topping" ? (
                         <div ref={toppingSectionRef} className="space-y-3 px-5 py-4">
                             {groupValidation.map((group) => (
                                 <div
@@ -662,9 +907,7 @@ export default function ModifierOptionsModal({
                                                     Number(option.id || 0)
                                                 );
                                             const isOutOfStock =
-                                                option.stock !== null &&
-                                                option.stock !== undefined &&
-                                                Number(option.stock) <= 0;
+                                                !isModifierOptionAvailable(option, quantity);
 
                                             return (
                                                 <button
@@ -842,7 +1085,7 @@ export default function ModifierOptionsModal({
                                 disabled={isSubmitting}
                                 className="rounded-2xl bg-primary-500 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 disabled:opacity-50"
                             >
-                                {hasModifierOptions
+                                {hasSelectableModifierOptions
                                     ? "Lanjut ke Topping"
                                     : "Lanjut ke Keterangan"}
                             </button>

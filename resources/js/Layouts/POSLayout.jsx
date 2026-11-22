@@ -129,7 +129,7 @@ export default function POSLayout({ children }) {
 
     return (
         <div className="flex h-screen min-h-dvh overflow-hidden bg-slate-100 transition-colors duration-200 dark:bg-slate-950">
-            <Sidebar sidebarOpen={sidebarOpen} />
+            <Sidebar sidebarOpen={sidebarOpen} variant="pos" />
             {/* Mobile overlay */}
             <div
                 className={`fixed inset-0 bg-slate-900/40 md:hidden transition-opacity duration-300 ${
@@ -148,6 +148,7 @@ export default function POSLayout({ children }) {
                     formatTime={formatTime}
                     formatDate={formatDate}
                     activeCashierShift={activeCashierShift}
+                    compactPos
                 />
 
                 {/* Main Content - Full Height */}

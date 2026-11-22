@@ -6,6 +6,7 @@ import ChangePaymentMethodModal from "./components/ChangePaymentMethodModal";
 import {
     formatPrice,
     paymentMethodLabel,
+    stripOrderTypeNotes,
     STATUS_LABEL as statusLabel,
 } from "./utils/tableOrderHelpers";
 
@@ -151,17 +152,32 @@ export default function Status({
             strong: true,
         },
     ].filter(Boolean);
-
-    const scrollToSection = (sectionId) => {
-        if (typeof window === "undefined") {
-            return;
-        }
-
-        document.getElementById(sectionId)?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-        });
-    };
+    const kitchenTickets = order.transaction?.kitchen_tickets || [];
+    const kitchenStatuses = kitchenTickets.map((ticket) =>
+        String(ticket.status || "pending").toLowerCase()
+    );
+    const paymentCompleted =
+        order.status === "paid" || orderPaymentStatus === "paid";
+    const kitchenStarted = kitchenStatuses.some((status) =>
+        ["acknowledged", "preparing", "ready", "completed"].includes(status)
+    );
+    const kitchenReady =
+        kitchenStatuses.length > 0 &&
+        kitchenStatuses.every((status) => ["ready", "completed"].includes(status));
+    const isStopped = ["cancelled", "rejected"].includes(order.status);
+    const progressSteps = [
+        { label: "Dikirim", done: true, active: !paymentCompleted },
+        {
+            label: "Dibayar",
+            done: paymentCompleted,
+            active: paymentCompleted && !kitchenStarted,
+        },
+        {
+            label: kitchenReady ? "Siap" : "Diproses",
+            done: kitchenReady,
+            active: paymentCompleted && (kitchenStarted || !kitchenReady),
+        },
+    ];
 
     useEffect(() => {
         if (!canAdjustItems || stockAlerts.length === 0) {
@@ -372,187 +388,236 @@ export default function Status({
                 bankAccounts={bankAccounts}
             />
 
-            <div className="min-h-screen bg-slate-50">
-                {/* Header */}
-                <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
-                    <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-3">
+            <div className="min-h-screen bg-[linear-gradient(180deg,_#f8fafc_0%,_#eef2ff_100%)]">
+                <header className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
+                    <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3 sm:px-6">
                         <div className="min-w-0">
-                            <p className="truncate text-sm font-bold text-slate-900">{order.table?.name || order.table?.code || "Meja"}</p>
-                            <p className="truncate text-xs text-slate-500">{order.order_number}</p>
+                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Status pesanan</p>
+                            <p className="truncate text-sm font-bold text-slate-900">{order.order_number}</p>
                         </div>
                         {newOrderHref ? (
-                            <Link href={newOrderHref} className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
-                                ← Menu
+                            <Link href={newOrderHref} className="shrink-0 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-200">
+                                Kembali ke menu
                             </Link>
                         ) : null}
                     </div>
-                </div>
+                </header>
 
-                <div className="mx-auto max-w-lg space-y-3 px-4 py-4 pb-8">
-                    {/* Flash messages */}
-                    {flash?.error && <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{flash.error}</div>}
-                    {flash?.success && <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{flash.success}</div>}
-                    {flash?.info && <div className="rounded-2xl bg-sky-50 px-4 py-3 text-sm text-sky-700">{flash.info}</div>}
+                <main className="mx-auto max-w-3xl space-y-4 px-4 py-5 pb-10 sm:px-6">
+                    {flash?.error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{flash.error}</div>}
+                    {flash?.success && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{flash.success}</div>}
+                    {flash?.info && <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700">{flash.info}</div>}
 
-                    {/* Status & total */}
-                    <div id="ringkasan-order" className="overflow-hidden rounded-[28px] bg-white shadow-sm ring-1 ring-slate-200/80">
-                        <div className="bg-slate-900 px-5 py-5 text-white">
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                    <p className="text-4xl font-bold tracking-tight">{formatPrice(order.grand_total)}</p>
-                                    <p className="mt-1 text-sm text-slate-400">
-                                        {order.items.length} item
-                                        {Number(order.payment_fee_total || 0) > 0 ? ` • +${formatPrice(order.payment_fee_total)} biaya` : ""}
+                    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_20px_60px_-42px_rgba(15,23,42,0.45)]">
+                        <div className="p-5 sm:p-6">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div>
+                                    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
+                                        paymentCompleted
+                                            ? "bg-emerald-100 text-emerald-700"
+                                            : isStopped
+                                              ? "bg-rose-100 text-rose-700"
+                                              : "bg-amber-100 text-amber-800"
+                                    }`}>
+                                        {displayStatusLabel}
+                                    </span>
+                                    <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+                                        {formatPrice(order.grand_total)}
+                                    </h1>
+                                    <p className="mt-1 text-sm text-slate-500">
+                                        {order.items.length} item · Meja {order.table?.code || order.table?.name || "-"}
                                     </p>
                                 </div>
-                                <span className={`mt-1 shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
-                                    order.status === "paid"
-                                        ? "bg-emerald-500 text-white"
-                                        : order.status === "cancelled" || order.status === "rejected"
-                                          ? "bg-rose-500 text-white"
-                                          : "bg-amber-400 text-amber-950"
-                                }`}>
-                                    {displayStatusLabel}
-                                </span>
-                            </div>
-                        </div>
-
-                        <div className="px-5 py-4">
-                            {/* Info singkat */}
-                            <div className="flex items-center justify-between text-sm">
-                                <span className="text-slate-500">Meja</span>
-                                <span className="font-semibold text-slate-900">{order.table?.code || order.table?.name || "-"}</span>
-                            </div>
-                            <div className="mt-2 flex items-center justify-between text-sm">
-                                <span className="text-slate-500">Pembayaran</span>
-                                <span className="font-semibold text-slate-900">{paymentMethodLabel(orderPaymentMethod)}</span>
-                            </div>
-
-                            {/* Badge metode bayar */}
-                            <div className={`mt-4 rounded-2xl border px-4 py-3 ${paymentModeCard.className}`}>
-                                <div className="flex items-center gap-2">
-                                    <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${paymentModeCard.badgeClassName}`}>
-                                        {paymentModeCard.badge}
-                                    </span>
-                                    <span className={`text-sm font-semibold ${paymentModeCard.titleClassName}`}>
-                                        {paymentModeCard.title}
-                                    </span>
+                                <div className="text-right text-xs text-slate-400">
+                                    <p>{order.created_at_label}</p>
+                                    <p className="mt-1 font-semibold text-slate-600">{paymentMethodLabel(orderPaymentMethod)}</p>
                                 </div>
                             </div>
 
-                            {/* Rincian rekening untuk transfer bank */}
-                            {isBankTransfer && bankAccountInfo && (
-                                <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/70 p-4">
-                                    <div className="flex items-center justify-between">
-                                        <p className="text-xs font-bold uppercase tracking-wider text-sky-800">
-                                            Rekening Tujuan Transfer
-                                        </p>
-                                        <span className="rounded-md bg-sky-200/80 px-2 py-0.5 text-xs font-bold text-sky-900">
-                                            {bankAccountInfo.bank_name}
-                                        </span>
-                                    </div>
-                                    <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-sky-100 bg-white p-3 shadow-sm">
-                                        <div className="min-w-0">
-                                            <p className="font-mono text-base font-bold text-slate-900">
-                                                {bankAccountInfo.account_number}
-                                            </p>
-                                            <p className="text-xs text-slate-500">
-                                                a.n. {bankAccountInfo.account_name}
+                            {!isStopped ? (
+                                <div className="mt-6 grid grid-cols-3 gap-2" aria-label="Progres pesanan">
+                                    {progressSteps.map((step, index) => (
+                                        <div key={step.label} className="relative text-center">
+                                            {index > 0 ? (
+                                                <span className={`absolute right-1/2 top-4 h-0.5 w-full ${step.done || step.active ? "bg-primary-400" : "bg-slate-200"}`} />
+                                            ) : null}
+                                            <span className={`relative z-[1] mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs font-black ${
+                                                step.done
+                                                    ? "bg-primary-600 text-white"
+                                                    : step.active
+                                                      ? "bg-primary-100 text-primary-700 ring-4 ring-primary-50"
+                                                      : "bg-slate-100 text-slate-400"
+                                            }`}>
+                                                {step.done ? "✓" : index + 1}
+                                            </span>
+                                            <p className={`mt-2 text-[11px] font-bold ${step.done || step.active ? "text-slate-800" : "text-slate-400"}`}>
+                                                {step.label}
                                             </p>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => copyText(bankAccountInfo.account_number, "Nomor rekening disalin")}
-                                            className="shrink-0 rounded-lg bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 transition-colors"
-                                        >
-                                            Salin
+                                    ))}
+                                </div>
+                            ) : null}
+
+                            <div className={`mt-5 rounded-2xl border px-4 py-3 ${paymentModeCard.className}`}>
+                                <p className={`text-sm font-bold ${paymentModeCard.titleClassName}`}>{paymentModeCard.title}</p>
+                                <p className={`mt-1 text-xs leading-5 ${paymentModeCard.descriptionClassName}`}>{paymentModeCard.description}</p>
+                            </div>
+
+                            {isOnlinePaymentPending ? (
+                                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                                    {isPakasirPayment ? (
+                                        <button type="button" onClick={() => setPaymentModalOpen(true)} className="rounded-2xl bg-primary-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-primary-600/20 transition hover:bg-primary-700">
+                                            Bayar sekarang
                                         </button>
-                                    </div>
-                                    <p className="mt-2 text-xs text-slate-500 leading-relaxed">
-                                        Transfer pas sesuai total <strong className="text-slate-800">{formatPrice(order.grand_total)}</strong>, lalu konfirmasi ke kasir.
-                                    </p>
+                                    ) : (
+                                        <a href={order.transaction?.payment_url || "#"} target="_blank" rel="noreferrer" className="rounded-2xl bg-primary-600 px-4 py-3.5 text-center text-sm font-bold text-white shadow-lg shadow-primary-600/20 transition hover:bg-primary-700">
+                                            Bayar sekarang
+                                        </a>
+                                    )}
+                                    <button type="button" onClick={handleCheckPaymentStatus} disabled={paymentStatusForm.processing} className="rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">
+                                        {paymentStatusForm.processing ? "Mengecek..." : "Cek pembayaran"}
+                                    </button>
                                 </div>
-                            )}
-
-                            {/* Tombol aksi */}
-                            <div className="mt-4 flex flex-col gap-2">
-                                {isOnlinePaymentPending && isPakasirPayment && (
-                                    <button type="button" onClick={() => setPaymentModalOpen(true)} className="w-full rounded-xl bg-emerald-600 py-3.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/20">
-                                        Bayar Sekarang
-                                    </button>
-                                )}
-                                {isOnlinePaymentPending && !isPakasirPayment && (
-                                    <a href={order.transaction?.payment_url || "#"} target="_blank" rel="noreferrer" className="block w-full rounded-xl bg-emerald-600 py-3.5 text-center text-sm font-bold text-white shadow-lg shadow-emerald-600/20">
-                                        Bayar Sekarang
-                                    </a>
-                                )}
-                                {isOnlinePaymentPending && (
-                                    <button type="button" onClick={handleCheckPaymentStatus} disabled={paymentStatusForm.processing} className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 text-sm font-medium text-slate-700 disabled:opacity-50">
-                                        {paymentStatusForm.processing ? "Mengecek..." : "Cek Status Pembayaran"}
-                                    </button>
-                                )}
-                                {canChangePaymentMethod && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setChangePaymentModalOpen(true)}
-                                        className="w-full rounded-xl border border-slate-200 bg-white py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M7 10h14l-4-4" />
-                                            <path d="M17 14H3l4 4" />
-                                        </svg>
-                                        <span>Ganti Metode Pembayaran</span>
-                                    </button>
-                                )}
-                                {canAdjustItems && editOrderHref && (
-                                    <Link href={editOrderHref} className="block w-full rounded-xl border border-slate-200 bg-white py-3 text-center text-sm font-medium text-slate-700">
-                                        Edit Pesanan
-                                    </Link>
-                                )}
-                                {canCancelOrder && (
-                                    <button type="button" onClick={handleCancelOrder} disabled={cancelForm.processing} className="w-full rounded-xl border border-rose-100 bg-rose-50 py-3 text-sm font-medium text-rose-600 disabled:opacity-50">
-                                        {cancelForm.processing ? "Membatalkan..." : "Batalkan"}
-                                    </button>
-                                )}
-                            </div>
+                            ) : null}
                         </div>
-                    </div>
+                    </section>
 
-                    {/* Nota pesanan */}
-                    <div id="daftar-pesanan" className="overflow-hidden rounded-[28px] bg-white shadow-sm ring-1 ring-slate-200/80">
-                        <div className="border-b border-slate-100 px-5 py-4">
-                            <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Rincian Pesanan</p>
-                            <div className="mt-3 flex items-center justify-between text-sm">
-                                <span className="text-slate-500">{order.order_number}</span>
-                                <span className="font-semibold text-slate-900">{order.table?.code || order.table?.name}</span>
+                    {stockAlerts.length > 0 ? (
+                        <section className="flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-rose-800">Stok pesanan berubah</p>
+                                <p className="mt-1 text-xs text-rose-700">{stockAlerts.length} item perlu diperiksa sebelum dilanjutkan.</p>
                             </div>
-                        </div>
+                            <button type="button" onClick={() => handleRemoveUnavailableItems(false)} className="rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white">
+                                Periksa item
+                            </button>
+                        </section>
+                    ) : null}
 
-                        <div className="px-5 py-4">
-                            <div className="space-y-3">
-                                {order.items.map((item) => (
-                                    <div key={item.id} className="flex items-start justify-between gap-3 border-b border-slate-50 pb-3 last:border-0 last:pb-0">
-                                        <div className="min-w-0">
-                                            <p className="font-medium text-slate-900">{item.product_title}</p>
-                                            <p className="mt-0.5 text-sm text-slate-500">{item.qty} × {formatPrice(item.unit_price)}</p>
-                                            {item.notes && <p className="mt-0.5 text-xs text-slate-400 italic">{item.notes}</p>}
+                    {isBankTransfer && bankAccountInfo ? (
+                        <section className="rounded-3xl border border-sky-200 bg-white p-5 shadow-sm">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-sky-700">Rekening tujuan</p>
+                                    <p className="mt-2 font-mono text-xl font-black text-slate-950">{bankAccountInfo.account_number}</p>
+                                    <p className="mt-1 text-xs text-slate-500">{bankAccountInfo.bank_name} · a.n. {bankAccountInfo.account_name}</p>
+                                </div>
+                                <button type="button" onClick={() => copyText(bankAccountInfo.account_number, "Nomor rekening disalin")} className="rounded-xl bg-sky-100 px-4 py-2.5 text-xs font-bold text-sky-700">
+                                    Salin
+                                </button>
+                            </div>
+                        </section>
+                    ) : null}
+
+                    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_240px]">
+                        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 p-3 shadow-sm sm:p-5">
+                            <div className="mx-auto w-full max-w-[360px] bg-white px-5 py-6 font-mono text-[12px] leading-[1.45] text-slate-900 shadow-[0_18px_45px_-28px_rgba(15,23,42,0.5)] sm:px-6">
+                                <div className="text-center">
+                                    <p className="text-sm font-black tracking-[0.12em]">RINCIAN PESANAN</p>
+                                    <p className="mt-1 text-[10px] text-slate-500">{order.order_number} · {order.items.length} ITEM</p>
+                                </div>
+
+                                <div className="my-4 border-t border-dashed border-slate-400" />
+                                <div className="space-y-1 text-[11px]">
+                                    <div className="flex justify-between gap-3">
+                                        <span>Tanggal</span>
+                                        <span className="text-right">{order.created_at_label}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-3">
+                                        <span>Meja</span>
+                                        <span className="font-bold">{order.table?.code || order.table?.name || "-"}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-3">
+                                        <span>Pelanggan</span>
+                                        <span className="text-right font-bold">{order.customer_name || "Umum"}</span>
+                                    </div>
+                                </div>
+
+                                <div className="my-4 border-t border-dashed border-slate-400" />
+                                <div className="space-y-4">
+                                    {order.items.map((item) => {
+                                        const modifierTotal = (item.modifiers || []).reduce(
+                                            (total, modifier) => total + Number(modifier.total_price || 0),
+                                            0
+                                        );
+                                        const baseLineTotal = Math.max(0, Number(item.line_total || 0) - modifierTotal);
+                                        const baseUnitPrice = baseLineTotal / Math.max(1, Number(item.qty || 1));
+                                        const cleanNotes = stripOrderTypeNotes(item.notes);
+
+                                        return (
+                                            <article key={item.id}>
+                                                <div className="flex items-start justify-between gap-3 font-black">
+                                                    <span className="min-w-0 break-words uppercase">{item.product_title}</span>
+                                                    <span className="shrink-0">{formatPrice(baseLineTotal)}</span>
+                                                </div>
+                                                <div className="mt-1 flex justify-between gap-3 text-[11px] text-slate-600">
+                                                    <span>{item.qty} × {formatPrice(baseUnitPrice)}</span>
+                                                    <span>{item.order_type === "take_away" ? "BUNGKUS" : "DINE IN"}</span>
+                                                </div>
+                                                {(item.modifiers || []).map((modifier) => (
+                                                    <div key={modifier.id} className="mt-1 flex justify-between gap-3 text-[11px]">
+                                                        <span className="min-w-0 break-words">+ {modifier.name}</span>
+                                                        <span className="shrink-0">{formatPrice(modifier.total_price)}</span>
+                                                    </div>
+                                                ))}
+                                                {cleanNotes ? (
+                                                    <p className="mt-1 break-words text-[10px] italic text-slate-500">* {cleanNotes}</p>
+                                                ) : null}
+                                            </article>
+                                        );
+                                    })}
+                                </div>
+
+                                {order.notes ? (
+                                    <>
+                                        <div className="my-4 border-t border-dashed border-slate-400" />
+                                        <p className="break-words text-[10px]">CATATAN: {order.notes}</p>
+                                    </>
+                                ) : null}
+
+                                <div className="my-4 border-t border-dashed border-slate-400" />
+                                <div className="space-y-1.5">
+                                    {receiptRows.map((row) => (
+                                        <div key={row.label} className={`flex items-center justify-between gap-3 ${row.strong ? "border-y border-double border-slate-700 py-2 text-sm font-black" : "text-[11px]"}`}>
+                                            <span className={row.strong ? "uppercase" : ""}>{row.label}</span>
+                                            <span>{row.value}</span>
                                         </div>
-                                        <p className="shrink-0 font-semibold text-slate-900">{formatPrice(item.line_total)}</p>
-                                    </div>
-                                ))}
-                            </div>
+                                    ))}
+                                </div>
 
-                            <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">
-                                {receiptRows.map((row) => (
-                                    <div key={row.label} className={`flex items-center justify-between gap-3 ${row.strong ? "text-base font-bold text-slate-900" : "text-sm text-slate-500"}`}>
-                                        <span>{row.label}</span>
-                                        <span>{row.value}</span>
-                                    </div>
-                                ))}
+                                <div className="mt-5 border-t border-dashed border-slate-400 pt-4 text-center text-[10px] text-slate-500">
+                                    Simpan halaman ini sebagai bukti pesanan
+                                </div>
                             </div>
-                        </div>
+                        </section>
+
+                        {(canChangePaymentMethod || (canAdjustItems && editOrderHref) || canCancelOrder) ? (
+                            <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                                <p className="px-1 text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Kelola pesanan</p>
+                                <div className="mt-3 space-y-2">
+                                    {canAdjustItems && editOrderHref ? (
+                                        <Link href={editOrderHref} className="block rounded-xl bg-slate-900 px-4 py-3 text-center text-sm font-bold text-white">Edit pesanan</Link>
+                                    ) : null}
+                                    {canChangePaymentMethod ? (
+                                        <button type="button" onClick={() => setChangePaymentModalOpen(true)} className="group flex w-full items-center gap-3 rounded-2xl border border-primary-200 bg-primary-50 p-3 text-left transition hover:border-primary-300 hover:bg-primary-100 active:scale-[0.99]">
+                                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-600 text-lg font-black text-white shadow-sm">↔</span>
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block text-sm font-black text-primary-900">Ganti pembayaran</span>
+                                                <span className="mt-0.5 block text-[11px] text-primary-700">Saat ini {paymentMethodLabel(orderPaymentMethod)}</span>
+                                            </span>
+                                            <span className="text-lg font-bold text-primary-500 transition group-hover:translate-x-0.5">›</span>
+                                        </button>
+                                    ) : null}
+                                    {canCancelOrder ? (
+                                        <button type="button" onClick={handleCancelOrder} disabled={cancelForm.processing} className="w-full px-4 py-2.5 text-xs font-semibold text-rose-600 disabled:opacity-50">
+                                            {cancelForm.processing ? "Membatalkan..." : "Batalkan pesanan"}
+                                        </button>
+                                    ) : null}
+                                </div>
+                            </aside>
+                        ) : null}
                     </div>
-                </div>
+                </main>
             </div>
         </>
     );

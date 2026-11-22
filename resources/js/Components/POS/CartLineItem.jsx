@@ -36,6 +36,7 @@ export default function CartLineItem({
     stockIssue = null,
     notePlaceholder = "Catatan item...",
     modifierActionLabel = "Tambah topping / extra",
+    simple = false,
 }) {
     const [draftNotes, setDraftNotes] = useState(item.notes || "");
     const notesFocusedRef = useRef(false);
@@ -85,6 +86,198 @@ export default function CartLineItem({
         pricing_group_label:
             resolvedLine.pricingGroupLabel || item.pricing_group_label,
     };
+
+    if (simple) {
+        return (
+            <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex gap-3">
+                    <div className="flex h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-800">
+                        {item.product?.image ? (
+                            <img
+                                src={getProductImageUrl(
+                                    item.product.image,
+                                    item.product.title
+                                )}
+                                alt={item.product.title}
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                            />
+                        ) : (
+                            <div className="flex h-full w-full items-center justify-center text-slate-300">
+                                <IconShoppingCart size={18} />
+                            </div>
+                        )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <p className="truncate text-sm font-bold text-slate-900 dark:text-white">
+                                    {item.product?.title || "Produk"}
+                                </p>
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                    <span className="rounded-md bg-primary-50 px-2 py-0.5 text-[10px] font-semibold text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">
+                                        {item.order_type === "take_away"
+                                            ? "Bungkus"
+                                            : "Makan di sini"}
+                                    </span>
+                                    {item.product?.tenant_outlet?.name ? (
+                                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                            {item.product.tenant_outlet.name}
+                                        </span>
+                                    ) : null}
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => onRemoveItem?.(item.id)}
+                                disabled={itemRemoving}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-danger-50 hover:text-danger-600 disabled:opacity-50"
+                                aria-label="Hapus item"
+                            >
+                                <IconTrash size={15} />
+                            </button>
+                        </div>
+
+                        {hasPromoApplied(resolvedPromoItem) ? (
+                            <p className="mt-2 text-xs font-semibold text-success-600">
+                                {promoTitleText(resolvedPromoItem)}
+                            </p>
+                        ) : null}
+                    </div>
+                </div>
+
+                <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs dark:bg-slate-800/60">
+                    <div className="flex items-center justify-between gap-3 text-slate-600 dark:text-slate-300">
+                        <span>Harga menu</span>
+                        <span className="font-medium">
+                            {formatPrice(baseUnitPrice)} × {item.qty}
+                        </span>
+                    </div>
+                    {modifierGroups.map(([groupName, modifiers]) => (
+                        <div
+                            key={groupName}
+                            className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-700"
+                        >
+                            <p className="mb-1 font-semibold text-slate-700 dark:text-slate-200">
+                                {groupName}
+                            </p>
+                            {modifiers.map((modifier) => (
+                                <div
+                                    key={modifier.id}
+                                    className="flex items-center justify-between gap-3 py-0.5 text-slate-500 dark:text-slate-400"
+                                >
+                                    <span className="truncate">{modifier.name}</span>
+                                    <span className="shrink-0">
+                                        {Number(modifier.total_price || 0) > 0
+                                            ? `+${formatPrice(modifier.total_price)} / item`
+                                            : "Gratis"}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                    {modifierTotal > 0 ? (
+                        <div className="mt-2 flex items-center justify-between gap-3 border-t border-slate-200 pt-2 text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                            <span>Total topping</span>
+                            <span className="font-medium">
+                                +{formatPrice(modifierTotal)}
+                            </span>
+                        </div>
+                    ) : null}
+                    {Number(resolvedLine.discountTotal || 0) > 0 ? (
+                        <div className="mt-2 flex items-center justify-between gap-3 border-t border-slate-200 pt-2 text-success-600 dark:border-slate-700">
+                            <span>Diskon</span>
+                            <span className="font-semibold">
+                                -{formatPrice(resolvedLine.discountTotal)}
+                            </span>
+                        </div>
+                    ) : null}
+                </div>
+
+                {stockIssue ? (
+                    <p className="mt-3 rounded-xl bg-warning-50 px-3 py-2 text-xs font-medium text-warning-700">
+                        Stok tersedia {stockIssue.availableStock}. Kurangi jumlah item.
+                    </p>
+                ) : null}
+
+                <textarea
+                    value={draftNotes}
+                    onFocus={() => {
+                        notesFocusedRef.current = true;
+                    }}
+                    onChange={(event) => setDraftNotes(event.target.value)}
+                    onBlur={(event) => {
+                        notesFocusedRef.current = false;
+                        const nextNotes = event.target.value;
+
+                        if (nextNotes !== (item.notes || "")) {
+                            onNotesChange?.(item.id, nextNotes);
+                        }
+
+                        onNotesBlur?.(item.id, nextNotes);
+                    }}
+                    disabled={isLocked}
+                    rows={1}
+                    placeholder="Catatan (opsional)"
+                    className="mt-3 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-700 outline-none focus:border-primary-500 focus:bg-white focus:ring-2 focus:ring-primary-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                />
+                {noteSaving ? (
+                    <p className="mt-1 text-[10px] text-slate-400">
+                        Menyimpan catatan...
+                    </p>
+                ) : null}
+
+                <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="flex h-10 items-center rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+                        <button
+                            type="button"
+                            onClick={() => onQtyChange?.(item.id, item.qty - 1)}
+                            disabled={isLocked || qtyUpdating || item.qty <= 1}
+                            className="h-full w-10 text-lg text-slate-500 disabled:opacity-30"
+                        >
+                            −
+                        </button>
+                        <span className="min-w-9 text-center text-sm font-bold text-slate-900 dark:text-white">
+                            {item.qty}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => onQtyChange?.(item.id, item.qty + 1)}
+                            disabled={isLocked || qtyUpdating}
+                            className="h-full w-10 text-lg text-slate-500 disabled:opacity-30"
+                        >
+                            +
+                        </button>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                            Total item
+                        </p>
+                        {baseLineTotal > effectiveLineTotal ? (
+                            <p className="text-xs text-slate-400 line-through">
+                                {formatPrice(baseLineTotal)}
+                            </p>
+                        ) : null}
+                        <p className="text-base font-bold text-primary-600 dark:text-primary-400">
+                            {formatPrice(effectiveLineTotal)}
+                        </p>
+                    </div>
+                </div>
+
+                {isCrossProductBuyGet && previewRule && onAddRewardProducts ? (
+                    <button
+                        type="button"
+                        onClick={() => onAddRewardProducts(previewRule)}
+                        disabled={isLocked}
+                        className="mt-3 w-full rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 disabled:opacity-50"
+                    >
+                        Tambah item bonus
+                    </button>
+                ) : null}
+            </div>
+        );
+    }
 
     return (
         <div

@@ -195,19 +195,27 @@ class TableOrderService
 
             if ($availableStock < $requestedQty) {
                 throw ValidationException::withMessages([
-                    'items' => "Stok produk {$product->title} tidak mencukupi.",
+                    "items.{$index}.qty" => $availableStock <= 0
+                        ? "Stok {$product->title} habis. Hapus menu ini dari keranjang atau pilih menu lain."
+                        : "Stok {$product->title} hanya tersisa {$availableStock}, sedangkan pesanan meminta {$requestedQty}. Kurangi jumlah menu ini.",
                 ]);
             }
 
             $unitPrice = (int) ($product->sell_price ?? 0);
             $productModifierOptions = $modifierOptions->get($product->id, collect());
-            $selectedModifiers = $productModifierOptions
+            $selectableModifierOptions = $productModifierOptions
+                ->filter(fn (ProductModifierOption $option) => $this->modifierOptionIsAvailable(
+                    $option,
+                    (int) $item['qty'],
+                    (string) ($item['order_type'] ?? 'dine_in')
+                ));
+            $selectedModifiers = $selectableModifierOptions
                 ->whereIn('id', $item['modifier_ids']->all())
                 ->values();
 
             if ($item['modifier_ids']->isNotEmpty() && $selectedModifiers->count() !== $item['modifier_ids']->count()) {
                 throw ValidationException::withMessages([
-                    'items' => "Topping untuk produk {$product->title} tidak valid.",
+                    "items.{$index}.modifiers" => "Ada topping {$product->title} yang tidak tersedia untuk jenis penyajian atau jumlah ini. Pilih ulang topping.",
                 ]);
             }
 
@@ -216,7 +224,8 @@ class TableOrderService
                 $productModifierOptions,
                 $selectedModifiers,
                 'items',
-                (string) ($item['order_type'] ?? 'dine_in')
+                (string) ($item['order_type'] ?? 'dine_in'),
+                (int) $item['qty']
             );
 
             $modifierPricing = $selectedModifiers
@@ -581,7 +590,7 @@ class TableOrderService
             ->groupBy('product_id')
             ->map(fn (Collection $group) => (int) $group->sum('qty'));
 
-        $orderItems = $validatedItems->map(function (array $item) use ($products, $modifierOptions, $tableOrder, $requestedQtyByProduct, $currentReservedQtyByProduct) {
+        $orderItems = $validatedItems->map(function (array $item, int $index) use ($products, $modifierOptions, $tableOrder, $requestedQtyByProduct, $currentReservedQtyByProduct) {
             $product = $products->get($item['product_id']);
             if (! $product) {
                 throw ValidationException::withMessages([
@@ -595,19 +604,27 @@ class TableOrderService
 
             if ($availableStock < $requestedQty) {
                 throw ValidationException::withMessages([
-                    'items' => "Stok produk {$product->title} tidak mencukupi.",
+                    "items.{$index}.qty" => $availableStock <= 0
+                        ? "Stok {$product->title} habis. Hapus menu ini dari keranjang atau pilih menu lain."
+                        : "Stok {$product->title} hanya tersisa {$availableStock}, sedangkan pesanan meminta {$requestedQty}. Kurangi jumlah menu ini.",
                 ]);
             }
 
             $unitPrice = (int) ($product->sell_price ?? 0);
             $productModifierOptions = $modifierOptions->get($product->id, collect());
-            $selectedModifiers = $productModifierOptions
+            $selectableModifierOptions = $productModifierOptions
+                ->filter(fn (ProductModifierOption $option) => $this->modifierOptionIsAvailable(
+                    $option,
+                    (int) $item['qty'],
+                    (string) ($item['order_type'] ?? 'dine_in')
+                ));
+            $selectedModifiers = $selectableModifierOptions
                 ->whereIn('id', $item['modifier_ids']->all())
                 ->values();
 
             if ($item['modifier_ids']->isNotEmpty() && $selectedModifiers->count() !== $item['modifier_ids']->count()) {
                 throw ValidationException::withMessages([
-                    'items' => "Topping untuk produk {$product->title} tidak valid.",
+                    "items.{$index}.modifiers" => "Ada topping {$product->title} yang tidak tersedia untuk jenis penyajian atau jumlah ini. Pilih ulang topping.",
                 ]);
             }
 
@@ -616,7 +633,8 @@ class TableOrderService
                 $productModifierOptions,
                 $selectedModifiers,
                 'items',
-                (string) ($item['order_type'] ?? 'dine_in')
+                (string) ($item['order_type'] ?? 'dine_in'),
+                (int) $item['qty']
             );
 
             $modifierPricing = $selectedModifiers
@@ -731,7 +749,7 @@ class TableOrderService
 
     private function resolveAvailableStock(Product $product, int $outletId): int
     {
-        return (int) ($product->stock ?? 0);
+        return $this->resolveCurrentOutletStock($product, $outletId);
     }
 
     private function reserveStockForOrderItems(
@@ -771,14 +789,15 @@ class TableOrderService
                     $product,
                     (int) $tableOrder->outlet_id
                 );
+                $itemIndex = $orderItems->search(
+                    fn ($item) => (int) ($item['product_id'] ?? 0) === (int) $product->id
+                );
+                $errorKey = $itemIndex === false ? 'items' : "items.{$itemIndex}.qty";
 
                 throw ValidationException::withMessages([
-                    'items' => $currentStock <= 0
-                        ? "Stok {$product->title} habis saat pesanan dikirim. Silakan kurangi atau hapus menu ini."
-                        : "Stok {$product->title} berubah saat pesanan dikirim. Sisa stok saat ini {$currentStock}, sedangkan pesanan meminta {$qty}.",
-                    'stock' => $currentStock <= 0
-                        ? "Stok {$product->title} habis saat pesanan dikirim."
-                        : "Sisa stok {$product->title} saat ini {$currentStock}, pesanan meminta {$qty}.",
+                    $errorKey => $currentStock <= 0
+                        ? "Stok {$product->title} habis saat pesanan dikirim. Hapus menu ini dari keranjang atau pilih menu lain."
+                        : "Stok {$product->title} berubah dan hanya tersisa {$currentStock}, sedangkan pesanan meminta {$qty}. Kurangi jumlah menu ini.",
                 ]);
             }
         }
@@ -1123,11 +1142,16 @@ class TableOrderService
         Collection $productModifierOptions,
         Collection $selectedModifiers,
         string $errorKey,
-        string $orderType = 'dine_in'
+        string $orderType = 'dine_in',
+        int $quantity = 1
     ): void {
         $groupedOptions = $productModifierOptions
             ->where('is_active', true)
-            ->filter(fn (ProductModifierOption $option) => $option->appliesTo($orderType))
+            ->filter(fn (ProductModifierOption $option) => $this->modifierOptionIsAvailable(
+                $option,
+                $quantity,
+                $orderType
+            ))
             ->groupBy(function (ProductModifierOption $option) {
                 $groupName = trim((string) ($option->group_name ?? ''));
 
@@ -1137,9 +1161,12 @@ class TableOrderService
         foreach ($groupedOptions as $groupName => $options) {
             $firstOption = $options->first();
             $selectionMode = trim((string) ($firstOption->selection_mode ?? 'optional')) ?: 'optional';
-            $minSelect = max(
-                $selectionMode === 'optional' ? 0 : 1,
-                (int) ($firstOption->min_select ?? 0)
+            $minSelect = min(
+                $options->count(),
+                max(
+                    $selectionMode === 'optional' ? 0 : 1,
+                    (int) ($firstOption->min_select ?? 0)
+                )
             );
             $maxSelectRaw = (int) ($firstOption->max_select ?? 0);
             $maxSelect = $selectionMode === 'single'
@@ -1166,13 +1193,25 @@ class TableOrderService
             }
         }
 
-        if ($groupedOptions->isEmpty()
+        if ($groupedOptions->isNotEmpty()
             && (bool) $product->requires_modifier_selection
             && $selectedModifiers->isEmpty()) {
             throw ValidationException::withMessages([
                 $errorKey => "Produk {$product->title} wajib memilih minimal satu topping.",
             ]);
         }
+    }
+
+    private function modifierOptionIsAvailable(
+        ProductModifierOption $option,
+        int $quantity,
+        string $orderType
+    ): bool {
+        if (! $option->is_active || ! $option->appliesTo($orderType)) {
+            return false;
+        }
+
+        return $option->stock === null || (int) $option->stock >= max(1, $quantity);
     }
 
     private function supportsTableOrderItemPromoRewardMetadata(): bool
