@@ -81,6 +81,7 @@ const ProductCard = memo(function ProductCard({
     onProductSelect,
     bestSellerIds = [],
     simpleCards = false,
+    showRating = true,
 }) {
     // Store operational check — treat as unavailable if tenant outlet is closed/outside hours
     const storeClosed = product.store_closed_reason === "store_closed";
@@ -340,7 +341,7 @@ const ProductCard = memo(function ProductCard({
                                     </span>
                                 </span>
                             )}
-                            {ratingCount > 0 ? (
+                            {showRating && (ratingCount > 0 ? (
                                 <span className="flex items-center gap-0.5 flex-wrap">
                                     <span className="flex items-center gap-0.5 text-amber-500">
                                         {[0,1,2,3,4].map((i) => (
@@ -363,7 +364,7 @@ const ProductCard = memo(function ProductCard({
                                     </span>
                                     <span className="text-slate-400">Belum ada review</span>
                                 </span>
-                            ) : null}
+                            ) : null)}
                         </div>
                     )}
 
@@ -380,7 +381,7 @@ const ProductCard = memo(function ProductCard({
                                     {soldQty.toLocaleString('id-ID')} terjual
                                 </span>
                             )}
-                            {ratingCount > 0 ? (
+                            {showRating && (ratingCount > 0 ? (
                                 <span className="flex items-center gap-1">
                                     <span className="flex items-center gap-0.5 text-amber-500">
                                         {[0,1,2,3,4].map((i) => (
@@ -403,7 +404,7 @@ const ProductCard = memo(function ProductCard({
                                     </span>
                                     <span className="text-slate-400">Belum ada review</span>
                                 </span>
-                            ) : null}
+                            ) : null)}
                             {!interactive && hasModifierOptions && (
                                 <span className={`font-medium ${modifierTone.hintClass}`}>
                                     {product.requires_modifier_selection
@@ -563,6 +564,7 @@ export default function ProductGrid({
     onLoadMoreProducts,
     isLoadingMoreProducts = false,
     interactive = true,
+    showRating = true,
     searchPlaceholder,
     emptyMessage,
     enableBarcodeScanner = true,
@@ -1614,6 +1616,7 @@ export default function ProductGrid({
                                                             onProductSelect={onProductSelect}
                                                             bestSellerIds={bestSellerIds}
                                                             simpleCards={simpleCards}
+                                                            showRating={showRating}
                                                         />
                                                     ))}
                                                 </div>
@@ -1642,6 +1645,7 @@ export default function ProductGrid({
                                     onProductSelect={onProductSelect}
                                     bestSellerIds={bestSellerIds}
                                     simpleCards={simpleCards}
+                                    showRating={showRating}
                                 />
                             ))}
                         </div>

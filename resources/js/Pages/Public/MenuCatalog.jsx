@@ -358,6 +358,7 @@ export default function MenuCatalog({
                                         isSearching={false}
                                         searchInputRef={searchInputRef}
                                         interactive={false}
+                                        showRating={false}
                                         onProductSelect={setSelectedProduct}
                                         searchPlaceholder="Cari menu favorit... (tekan / untuk fokus)"
                                         emptyMessage={
