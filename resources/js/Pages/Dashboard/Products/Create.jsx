@@ -14,14 +14,20 @@ import {
     IconPackage,
     IconDeviceFloppy,
     IconArrowLeft,
-    IconChevronDown,
-    IconChevronUp,
+    IconArrowRight,
     IconPhoto,
     IconBarcode,
     IconCurrencyDollar,
-    IconPlus,
-    IconTrash,
+    IconToolsKitchen2,
+    IconSparkles,
+    IconCheck,
+    IconAlertCircle,
+    IconX,
+    IconBuildingStore,
+    IconCategory,
+    IconInfoCircle,
 } from "@/Utils/icons";
+import ModifierBuilder from "./Partials/ModifierBuilder";
 
 const formatCurrency = (value = 0) =>
     new Intl.NumberFormat("id-ID", {
@@ -42,77 +48,8 @@ const previewAutoSku = (sku, barcode, title) => {
     return source || "SKU";
 };
 
-const createModifierRuleSummary = (option) => {
-    if (option?.is_required) {
-        return "Customer wajib memilih opsi ini atau salah satu opsi wajib lain yang Anda tandai.";
-    }
-
-    return "Opsi ini bersifat tambahan dan boleh dilewati customer saat order.";
-};
-
-const defaultModifierOption = (groupName = "Topping") => ({
-    group_name: groupName,
-    order_type_scope: "",
-    selection_mode: "optional",
-    min_select: 0,
-    max_select: "",
-    name: "",
-    price: "",
-    stock: "",
-    is_required: false,
-});
-
-const createModifierModeLabel = (mode) => {
-    if (mode === "single") return "Pilih 1";
-    if (mode === "multiple") return "Bisa lebih dari 1";
-    return "Opsional";
-};
-
-const resolveModifierMarkupPreview = (basePrice, rules = []) => {
-    const price = Math.max(0, Number(basePrice || 0));
-    const activeRules = Array.isArray(rules) ? rules.filter((rule) => rule?.is_active !== false) : [];
-    const matchedRule = activeRules.find((rule) => {
-        const compareValue = Math.max(0, Number(rule?.compare_value || 0));
-        const compareValueTo = rule?.compare_value_to === "" || rule?.compare_value_to === null || rule?.compare_value_to === undefined
-            ? null
-            : Math.max(0, Number(rule.compare_value_to || 0));
-
-        switch (rule?.operator) {
-            case "lt":
-                return price < compareValue;
-            case "lte":
-                return price <= compareValue;
-            case "eq":
-                return price === compareValue;
-            case "gte":
-                return price >= compareValue;
-            case "gt":
-                return price > compareValue;
-            case "between":
-                return compareValueTo !== null
-                    && price >= Math.min(compareValue, compareValueTo)
-                    && price <= Math.max(compareValue, compareValueTo);
-            default:
-                return false;
-        }
-    });
-
-    const markupPrice = matchedRule
-        ? matchedRule.markup_type === "percentage"
-            ? Math.max(0, Math.round(price * (Number(matchedRule.markup_value || 0) / 100)))
-            : Math.max(0, Number(matchedRule.markup_value || 0))
-        : 0;
-
-    return {
-        basePrice: price,
-        markupPrice,
-        effectivePrice: price + markupPrice,
-        rule: matchedRule || null,
-    };
-};
-
 export default function Create({
-    categories,
+    categories = [],
     tenantOutlets = [],
     autoKitchenStations = [],
     workspace = {},
@@ -122,6 +59,13 @@ export default function Create({
     const { errors } = usePage().props;
     const isTenantWorkspace = workspace?.is_tenant === true;
     const defaultTenantOutletId = workspace?.active_outlet_id || "";
+
+    const [currentStep, setCurrentStep] = useState(1);
+    const [selectedCategory, setSelectedCategory] = useState(null);
+    const [imagePreview, setImagePreview] = useState(null);
+    const [selectedImageName, setSelectedImageName] = useState("");
+    const [localErrors, setLocalErrors] = useState({});
+    const [showAdvancedCodes, setShowAdvancedCodes] = useState(false);
 
     const { data, setData, post, processing } = useForm({
         image: "",
@@ -139,22 +83,19 @@ export default function Create({
         requires_modifier_selection: false,
         modifier_options: [],
     });
+
     const effectiveOutletSellPrice = useMemo(
         () => Math.max(0, Number(data.buy_price || 0) + Number(tenantDefaultMarkup || 0)),
         [data.buy_price, tenantDefaultMarkup]
     );
+
     const autoProductCodePreview = useMemo(
         () => previewAutoSku("", "", data.title || "FC-PRODUCT"),
         [data.title]
     );
 
-    const [selectedCategory, setSelectedCategory] = useState(null);
-    const [imagePreview, setImagePreview] = useState(null);
-    const [selectedImageName, setSelectedImageName] = useState("");
-    const [localErrors, setLocalErrors] = useState({});
-    const [showModifierSection, setShowModifierSection] = useState(true);
-    const [collapsedModifierGroups, setCollapsedModifierGroups] = useState({});
     const autoSkuPreview = previewAutoSku(data.sku, data.barcode, data.title);
+
     const selectedTenantOutlet = useMemo(
         () =>
             tenantOutlets.find(
@@ -162,6 +103,7 @@ export default function Create({
             ) || null,
         [data.tenant_outlet_id, tenantOutlets]
     );
+
     const availableCategories = useMemo(
         () =>
             categories.filter(
@@ -171,6 +113,7 @@ export default function Create({
             ),
         [categories, data.tenant_outlet_id]
     );
+
     const autoKitchenStation = useMemo(() => {
         const selectedOutletId = Number(data.tenant_outlet_id || 0);
 
@@ -184,33 +127,6 @@ export default function Create({
 
         return autoKitchenStations[0] || null;
     }, [autoKitchenStations, data.tenant_outlet_id]);
-    const toppingMarkupRules = toppingMarkupSettings?.rules || [];
-    const modifierGroups = useMemo(() => {
-        const buckets = new Map();
-
-        data.modifier_options.forEach((option, index) => {
-            const groupName = String(option.group_name || "Topping").trim() || "Topping";
-
-            if (!buckets.has(groupName)) {
-                buckets.set(groupName, {
-                    groupKey: index,
-                    groupName,
-                    order_type_scope: option.order_type_scope ?? "",
-                    selection_mode: option.selection_mode || "optional",
-                    min_select: option.min_select ?? 0,
-                    max_select: option.max_select ?? "",
-                    options: [],
-                });
-            }
-
-            buckets.get(groupName).options.push({
-                ...option,
-                originalIndex: index,
-            });
-        });
-
-        return Array.from(buckets.values());
-    }, [data.modifier_options]);
 
     const setSelectedCategoryHandler = (value) => {
         setSelectedCategory(value);
@@ -262,6 +178,7 @@ export default function Create({
         if (!file) {
             setData("image", "");
             setSelectedImageName("");
+            setImagePreview(null);
             setLocalErrors((current) => ({ ...current, image: "" }));
             return;
         }
@@ -271,6 +188,7 @@ export default function Create({
         if (!result.ok) {
             setData("image", "");
             setSelectedImageName("");
+            setImagePreview(null);
             setLocalErrors((current) => ({ ...current, image: result.error }));
             toast.error(result.error);
             return;
@@ -282,819 +200,782 @@ export default function Create({
         setImagePreview(URL.createObjectURL(result.file));
     };
 
-    const updateModifierOption = (index, field, value) => {
-        setData(
-            "modifier_options",
-            data.modifier_options.map((row, rowIndex) =>
-                rowIndex === index ? { ...row, [field]: value } : row
-            )
-        );
+    const handleRemoveImage = () => {
+        setData("image", "");
+        setSelectedImageName("");
+        setImagePreview(null);
+        setLocalErrors((current) => ({ ...current, image: "" }));
     };
 
-    const addModifierOption = () => {
-        setData("modifier_options", [
-            ...data.modifier_options,
-            defaultModifierOption(),
-        ]);
-    };
+    // Deteksi Error per Step untuk Badge Merah
+    const stepErrors = useMemo(() => {
+        const allKeys = Object.keys(errors || {});
+        const step1Keys = ["image", "title", "category_id", "tenant_outlet_id", "description", "barcode", "sku"];
+        const step2Keys = ["tenant_hpp_price", "buy_price", "sell_price", "stock"];
+        const step4Keys = ["supports_modifiers", "requires_modifier_selection", "modifier_options"];
 
-    const addModifierGroup = () => {
-        const nextGroupNumber = modifierGroups.length + 1;
+        return {
+            step1: allKeys.filter((k) => step1Keys.includes(k) || localErrors.image).length,
+            step2: allKeys.filter((k) => step2Keys.includes(k)).length,
+            step3: 0,
+            step4: allKeys.filter((k) => step4Keys.includes(k) || k.startsWith("modifier_options.")).length,
+        };
+    }, [errors, localErrors]);
 
-        setData("modifier_options", [
-            ...data.modifier_options,
-            defaultModifierOption(`Kategori ${nextGroupNumber}`),
-        ]);
-    };
-
-    const toggleModifierGroup = (groupKey) => {
-        setCollapsedModifierGroups((current) => ({
-            ...current,
-            [groupKey]: !current[groupKey],
-        }));
-    };
-
-    const duplicateModifierGroup = (group) => {
-        const clonedGroupName = `${group.groupName} Copy`;
-        const clonedRows = group.options.map((option) => ({
-            ...defaultModifierOption(clonedGroupName),
-            order_type_scope: group.order_type_scope ?? "",
-            selection_mode: group.selection_mode || "optional",
-            min_select: group.min_select ?? 0,
-            max_select: group.max_select ?? "",
-            name: option.name || "",
-            price: option.price ?? "",
-            stock: option.stock ?? "",
-            is_required: !!option.is_required,
-        }));
-
-        setData("modifier_options", [...data.modifier_options, ...clonedRows]);
-    };
-
-    const removeModifierGroup = (groupName) => {
-        setData(
-            "modifier_options",
-            data.modifier_options.filter(
-                (row) => String(row.group_name || "Topping").trim() !== String(groupName).trim()
-            )
-        );
-    };
-
-    const addModifierOptionToGroup = (groupName) => {
-        const group = modifierGroups.find((entry) => entry.groupName === groupName);
-
-        setData("modifier_options", [
-            ...data.modifier_options,
-            {
-                ...defaultModifierOption(groupName),
-                order_type_scope: group?.order_type_scope ?? "",
-                selection_mode: group?.selection_mode || "optional",
-                min_select: group?.min_select ?? 0,
-                max_select: group?.max_select ?? "",
-            },
-        ]);
-    };
-
-    const updateModifierGroupMeta = (groupName, field, value) => {
-        setData(
-            "modifier_options",
-            data.modifier_options.map((row) =>
-                String(row.group_name || "Topping").trim() === String(groupName).trim()
-                    ? {
-                          ...row,
-                          [field]: value,
-                          ...(field === "selection_mode" && value === "single"
-                              ? { max_select: 1 }
-                              : {}),
-                      }
-                    : row
-            )
-        );
-    };
-
-    const removeModifierOption = (index) => {
-        setData(
-            "modifier_options",
-            data.modifier_options.filter((_, rowIndex) => rowIndex !== index)
-        );
-    };
+    // Deteksi Status Selesai per Step
+    const stepCompleted = useMemo(() => {
+        return {
+            step1: Boolean(data.title && data.category_id),
+            step2: Boolean(data.buy_price !== "" && (isTenantWorkspace || data.sell_price !== "") && data.stock !== ""),
+            step3: true,
+            step4: data.supports_modifiers ? (data.modifier_options?.length || 0) > 0 : true,
+        };
+    }, [data, isTenantWorkspace]);
 
     const submit = (e) => {
-        e.preventDefault();
+        if (e && e.preventDefault) {
+            e.preventDefault();
+        }
 
         if (localErrors.image) {
             toast.error(localErrors.image);
+            setCurrentStep(1);
+            return;
+        }
+
+        if (!data.title) {
+            toast.error("Nama produk wajib diisi");
+            setCurrentStep(1);
+            return;
+        }
+
+        if (!data.category_id) {
+            toast.error("Kategori produk wajib dipilih");
+            setCurrentStep(1);
             return;
         }
 
         post(route("products.store"), {
             forceFormData: true,
-            onSuccess: () => toast.success("Produk berhasil ditambahkan"),
-            onError: () => toast.error("Gagal menyimpan produk"),
+            onSuccess: () => toast.success("Produk berhasil ditambahkan!"),
+            onError: () => {
+                toast.error("Gagal menyimpan produk. Periksa kembali form yang bertanda merah.");
+                if (stepErrors.step1 > 0) setCurrentStep(1);
+                else if (stepErrors.step2 > 0) setCurrentStep(2);
+                else if (stepErrors.step4 > 0) setCurrentStep(4);
+            },
         });
     };
 
+    const STEPS = [
+        { id: 1, title: "Info & Kategori", subtitle: "Nama, foto & kategori", icon: IconPackage },
+        { id: 2, title: "Harga & Stok", subtitle: "Modal, jual & stok", icon: IconCurrencyDollar },
+        { id: 3, title: "Dapur & Station", subtitle: "Aliran pesanan", icon: IconToolsKitchen2 },
+        { id: 4, title: "Topping & Varian", subtitle: "Add-on & pilihan rasa", icon: IconSparkles },
+    ];
+
     return (
-        <>
-            <Head title="Tambah Produk" />
+        <DashboardLayout>
+            <Head title="Tambah Produk Baru" />
 
-            {/* Header */}
-            <div className="mb-6">
-                <Link
-                    href={route("products.index")}
-                    className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-primary-600 mb-3"
-                >
-                    <IconArrowLeft size={16} />
-                    Kembali ke Produk
-                </Link>
-                <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    Tambah Produk
-                </h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Isi data inti produk, lalu simpan.
-                </p>
-            </div>
-
-            <form onSubmit={submit}>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Left Column - Image */}
-                    <div className="lg:col-span-1">
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
-                                <IconPhoto size={18} />
-                                Gambar Produk
-                            </h3>
-                            <div className="aspect-square rounded-xl bg-slate-100 dark:bg-slate-800 border-2 border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-center overflow-hidden mb-4">
-                                {imagePreview ? (
-                                    <img
-                                        src={imagePreview}
-                                        alt="Preview"
-                                        className="w-full h-full object-cover"
-                                    />
-                                ) : (
-                                    <div className="text-center p-6">
-                                        <IconPhoto
-                                            size={48}
-                                            className="mx-auto text-slate-400 mb-2"
-                                        />
-                                        <p className="text-sm text-slate-500">
-                                            Belum ada gambar
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-                            <Input
-                                type="file"
-                                label="Upload Gambar"
-                                onChange={handleImageChange}
-                                errors={localErrors.image || errors.image}
-                                accept={IMAGE_UPLOAD_ACCEPT}
-                            />
-                            <div className="mt-2 space-y-1 text-xs text-slate-500">
-                                <p>
-                                    {selectedImageName
-                                        ? `File dipilih: ${selectedImageName}`
-                                        : "Belum ada gambar dipilih. Sistem akan memakai default.jpg."}
-                                </p>
-                                <p>
-                                    Format: JPG, PNG, WEBP. Maksimal 2MB.
-                                    Gambar dikompres otomatis sebelum diunggah.
-                                </p>
-                            </div>
-                        </div>
+            <div className="mx-auto max-w-7xl pb-16">
+                {/* Header Atas */}
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <Link
+                            href={route("products.index")}
+                            className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-primary-600 transition mb-2"
+                        >
+                            <IconArrowLeft size={16} />
+                            Kembali ke Daftar Menu
+                        </Link>
+                        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2.5">
+                            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-600 text-white shadow-md shadow-primary-500/20">
+                                <IconPackage size={20} />
+                            </span>
+                            Tambah Menu Baru
+                        </h1>
+                        <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                            Lengkapi informasi menu langkah demi langkah atau langsung simpan kapan saja.
+                        </p>
                     </div>
 
-                    {/* Right Column - Form */}
-                    <div className="lg:col-span-2 space-y-6">
-                        {/* Basic Info */}
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
-                                <IconBarcode size={18} />
-                                Informasi Dasar
-                            </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="md:col-span-2">
-                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                        Tenant Outlet
-                                    </label>
-                                    <select
-                                        value={data.tenant_outlet_id}
-                                        onChange={(e) => {
-                                            setData("tenant_outlet_id", e.target.value);
-                                            setData("category_id", "");
-                                            setSelectedCategory(null);
-                                        }}
-                                        disabled={isTenantWorkspace}
-                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:disabled:bg-slate-800"
+                    <div className="flex items-center gap-2.5">
+                        <Button
+                            type="button"
+                            onClick={submit}
+                            disabled={processing}
+                            className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-primary-600/25 transition hover:bg-primary-700 active:scale-[0.98] disabled:opacity-60"
+                        >
+                            <IconDeviceFloppy size={18} />
+                            <span>{processing ? "Menyimpan..." : "Simpan Produk"}</span>
+                        </Button>
+                    </div>
+                </div>
+
+                {/* Modern Stepper Header */}
+                <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        {STEPS.map((step) => {
+                            const IconComponent = step.icon;
+                            const isActive = currentStep === step.id;
+                            const isDone = stepCompleted[`step${step.id}`];
+                            const errorCount = stepErrors[`step${step.id}`] || 0;
+
+                            return (
+                                <button
+                                    key={step.id}
+                                    type="button"
+                                    onClick={() => setCurrentStep(step.id)}
+                                    className={`relative flex items-center gap-3 rounded-xl p-3 text-left transition-all ${
+                                        isActive
+                                            ? "bg-primary-50 border border-primary-200 shadow-sm dark:bg-primary-950/40 dark:border-primary-900/60"
+                                            : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                                    }`}
+                                >
+                                    <div
+                                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-bold transition ${
+                                            errorCount > 0
+                                                ? "bg-red-500 text-white"
+                                                : isActive
+                                                ? "bg-primary-600 text-white shadow-md shadow-primary-500/25"
+                                                : isDone
+                                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                                : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                                        }`}
                                     >
-                                        <option value="">Global / Owner Outlet</option>
-                                        {tenantOutlets.map((outlet) => (
-                                            <option key={outlet.id} value={outlet.id}>
-                                                {outlet.code} - {outlet.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {errors.tenant_outlet_id && (
-                                        <p className="mt-1 text-xs text-red-500">
-                                            {errors.tenant_outlet_id}
-                                        </p>
-                                    )}
-                                    <p className="mt-1 text-xs text-slate-500">
-                                        {isTenantWorkspace
-                                            ? "Produk baru otomatis masuk ke tenant outlet aktif Anda."
-                                            : selectedTenantOutlet
-                                            ? `Kategori yang tersedia akan dibatasi ke tenant ${selectedTenantOutlet.name}.`
-                                            : "Pilih global jika produk milik owner outlet dan memakai kategori global."}
-                                    </p>
-                                    <p className="mt-1 text-xs text-slate-500">
-                                        {autoKitchenStation
-                                            ? `Auto-mapping dapur akan memakai station ${autoKitchenStation.station_name}${autoKitchenStation.station_code ? ` (${autoKitchenStation.station_code})` : ""}.`
-                                            : "Belum ada station dapur aktif yang bisa dipakai untuk auto-mapping."}
-                                    </p>
-                                </div>
-                                <div className="md:col-span-2">
-                                    <InputSelect
-                                        label="Kategori"
-                                        data={availableCategories}
-                                        selected={selectedCategory}
-                                        setSelected={setSelectedCategoryHandler}
-                                        placeholder={
-                                            data.tenant_outlet_id
-                                                ? "Pilih kategori tenant"
-                                                : "Pilih kategori global"
-                                        }
-                                        errors={errors.category_id}
-                                        searchable={true}
-                                        displayKey="name"
-                                    />
-                                    <p className="mt-1 text-xs text-slate-500">
-                                        {availableCategories.length > 0
-                                            ? `${availableCategories.length} kategori tersedia untuk konteks ini.`
-                                            : "Belum ada kategori untuk tenant/konteks ini. Buat kategori terlebih dahulu."}
-                                    </p>
-                                </div>
-                                {isTenantWorkspace ? (
-                                    <>
-                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                Barcode
+                                        {errorCount > 0 ? (
+                                            <IconAlertCircle size={20} />
+                                        ) : isDone && !isActive ? (
+                                            <IconCheck size={20} />
+                                        ) : (
+                                            <IconComponent size={20} />
+                                        )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <p
+                                                className={`text-xs font-bold truncate ${
+                                                    isActive
+                                                        ? "text-primary-700 dark:text-primary-300"
+                                                        : "text-slate-800 dark:text-slate-200"
+                                                }`}
+                                            >
+                                                Langkah {step.id}: {step.title}
                                             </p>
-                                            <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
-                                                {autoProductCodePreview}
-                                            </p>
-                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                Dibuat otomatis saat produk disimpan.
-                                            </p>
-                                        </div>
-                                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                SKU
-                                            </p>
-                                            <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
-                                                {autoProductCodePreview}
-                                            </p>
-                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                Dibuat otomatis mengikuti kode produk.
-                                            </p>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Input
-                                            type="text"
-                                            label="Barcode"
-                                            value={data.barcode}
-                                            onChange={(e) =>
-                                                setData("barcode", e.target.value)
-                                            }
-                                            errors={errors.barcode}
-                                            placeholder="Kosongkan untuk generate otomatis"
-                                        />
-                                        <Input
-                                            type="text"
-                                            label="SKU"
-                                            value={data.sku}
-                                            onChange={(e) => setData("sku", e.target.value)}
-                                            errors={errors.sku}
-                                            placeholder="Kosongkan untuk generate otomatis"
-                                        />
-                                        <p className="-mt-2 text-xs text-slate-500">
-                                            Jika dikosongkan, barcode dan SKU akan dibuat otomatis dari nama produk.
-                                            Preview:{" "}
-                                            <span className="font-semibold text-slate-700">
-                                                {autoSkuPreview}
-                                            </span>
-                                        </p>
-                                    </>
-                                )}
-                                <Input
-                                    type="text"
-                                    label="Nama Produk"
-                                    value={data.title}
-                                    onChange={(e) =>
-                                        setData("title", e.target.value)
-                                    }
-                                    errors={errors.title}
-                                    placeholder="Masukkan nama produk"
-                                />
-                                <div className="md:col-span-2">
-                                    <Textarea
-                                        label="Deskripsi"
-                                        placeholder="Deskripsi produk (opsional)"
-                                        errors={errors.description}
-                                        onChange={(e) =>
-                                            setData(
-                                                "description",
-                                                e.target.value
-                                            )
-                                        }
-                                        value={data.description}
-                                        rows={3}
-                                    />
-                                </div>
-                                <div className="md:col-span-2 space-y-3">
-                                    <div className="rounded-2xl border-2 border-primary-200 bg-primary-50/80 p-4 dark:border-primary-900/40 dark:bg-primary-950/20">
-                                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary-600 dark:text-primary-300">
-                                            Langkah 1
-                                        </p>
-                                        <label className="mt-3 flex items-start gap-3 text-sm text-slate-700 dark:text-slate-200">
-                                            <input
-                                                type="checkbox"
-                                                checked={data.supports_modifiers}
-                                                onChange={(e) =>
-                                                    setData({
-                                                        ...data,
-                                                        supports_modifiers: e.target.checked,
-                                                        requires_modifier_selection: e.target.checked
-                                                            ? data.requires_modifier_selection
-                                                            : false,
-                                                    })
-                                                }
-                                                className="mt-0.5 h-6 w-6 rounded-md border-2 border-primary-400 text-primary-600 shadow-sm focus:ring-2 focus:ring-primary-500"
-                                            />
-                                            <span>
-                                                <span className="block text-base font-bold">
-                                                    Produk ini mendukung topping / tambahan
+                                            {errorCount > 0 && (
+                                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                                                    {errorCount}
                                                 </span>
-                                                <span className="mt-1 block text-sm text-slate-600 dark:text-slate-300">
-                                                    Aktifkan jika item ini bisa memiliki extra topping, add-on, atau tambahan harga di POS dan self order.
-                                                </span>
-                                            </span>
+                                            )}
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                            {step.subtitle}
+                                        </p>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Grid Form Utama & Live Preview */}
+                <form onSubmit={submit}>
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                        {/* Kolom Kiri: Form Wizard Sesuai Step Aktif (8 Kolom) */}
+                        <div className="lg:col-span-8 space-y-6">
+                            {/* STEP 1: INFO DASAR & KATEGORI */}
+                            {currentStep === 1 && (
+                                <div className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                                    <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
+                                        <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                            <IconPackage size={20} className="text-primary-600" />
+                                            Langkah 1: Identitas & Kategori Menu
+                                        </h3>
+                                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                            Tentukan nama menu, foto yang memikat pelanggan, dan kelompok kategorinya.
+                                        </p>
+                                    </div>
+
+                                    {/* Upload Foto Produk Modern */}
+                                    <div>
+                                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">
+                                            Foto Menu
                                         </label>
-                                    </div>
-                                    {data.supports_modifiers ? (
-                                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
-                                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-600 dark:text-amber-300">
-                                                Langkah 2
-                                            </p>
-                                            <label className="mt-3 flex items-start gap-3 text-sm text-slate-700 dark:text-slate-200">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={data.requires_modifier_selection}
-                                                    onChange={(e) =>
-                                                        setData(
-                                                            "requires_modifier_selection",
-                                                            e.target.checked
-                                                        )
-                                                    }
-                                                    className="mt-0.5 h-6 w-6 rounded-md border-2 border-amber-400 text-amber-500 shadow-sm focus:ring-2 focus:ring-amber-500"
-                                                />
-                                                <span>
-                                                    <span className="block font-semibold">
-                                                        Produk ini wajib memilih topping
-                                                    </span>
-                                                    <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
-                                                        Jika aktif, POS dan self order akan meminta minimal satu topping dipilih. Jika ada opsi yang ditandai wajib, user harus memilih salah satunya.
-                                                    </span>
-                                                </span>
-                                            </label>
+                                        <div className="flex flex-col sm:flex-row items-center gap-5 rounded-2xl border-2 border-dashed border-slate-300 p-4 transition hover:border-primary-400 dark:border-slate-700 dark:bg-slate-800/20">
+                                            <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-2xl bg-slate-100 dark:bg-slate-800 shadow-inner flex items-center justify-center border border-slate-200 dark:border-slate-700">
+                                                {imagePreview ? (
+                                                    <>
+                                                        <img
+                                                            src={imagePreview}
+                                                            alt="Preview"
+                                                            className="h-full w-full object-cover"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleRemoveImage}
+                                                            title="Hapus Foto"
+                                                            className="absolute right-1.5 top-1.5 rounded-full bg-red-600 p-1 text-white shadow-md hover:bg-red-700 transition"
+                                                        >
+                                                            <IconX size={14} />
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <div className="flex flex-col items-center justify-center text-slate-400">
+                                                        <IconPhoto size={36} />
+                                                        <span className="text-[10px] mt-1 font-semibold">Belum Ada</span>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="flex-1 space-y-2 text-center sm:text-left">
+                                                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
+                                                    <label className="cursor-pointer inline-flex items-center gap-2 rounded-xl bg-primary-50 px-4 py-2 text-xs font-bold text-primary-700 hover:bg-primary-100 dark:bg-primary-950/60 dark:text-primary-300 transition">
+                                                        <IconPhoto size={16} />
+                                                        <span>{imagePreview ? "Ganti Foto" : "Pilih Foto Menu"}</span>
+                                                        <input
+                                                            type="file"
+                                                            accept={IMAGE_UPLOAD_ACCEPT}
+                                                            onChange={handleImageChange}
+                                                            className="sr-only"
+                                                        />
+                                                    </label>
+                                                    {imagePreview && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleRemoveImage}
+                                                            className="text-xs font-semibold text-red-500 hover:underline"
+                                                        >
+                                                            Hapus Foto
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                    Format JPG, PNG, WEBP. Maks 2MB. Gambar dikompres otomatis demi performa POS cepat.
+                                                </p>
+                                                {(localErrors.image || errors.image) && (
+                                                    <p className="text-xs font-semibold text-red-500">
+                                                        {localErrors.image || errors.image}
+                                                    </p>
+                                                )}
+                                            </div>
                                         </div>
-                                    ) : null}
+                                    </div>
+
+                                    {/* Tenant Outlet (Jika Bukan Tenant Workspace) */}
+                                    {!isTenantWorkspace && (
+                                        <div>
+                                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                                                Outlet / Tenant Pemilik
+                                            </label>
+                                            <select
+                                                value={data.tenant_outlet_id}
+                                                onChange={(e) => {
+                                                    setData("tenant_outlet_id", e.target.value);
+                                                    setData("category_id", "");
+                                                    setSelectedCategory(null);
+                                                }}
+                                                className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                                            >
+                                                <option value="">Global / Owner Outlet (Menu Milik Pusat)</option>
+                                                {tenantOutlets.map((outlet) => (
+                                                    <option key={outlet.id} value={outlet.id}>
+                                                        {outlet.code} - {outlet.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {errors.tenant_outlet_id && (
+                                                <p className="mt-1 text-xs text-red-500">{errors.tenant_outlet_id}</p>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Nama Produk */}
+                                    <div>
+                                        <Input
+                                            type="text"
+                                            label="Nama Menu / Produk *"
+                                            value={data.title}
+                                            onChange={(e) => setData("title", e.target.value)}
+                                            errors={errors.title}
+                                            placeholder="Contoh: Nasi Goreng Spesial / Kopi Susu Aren"
+                                        />
+                                    </div>
+
+                                    {/* Kategori Menu */}
+                                    <div>
+                                        <InputSelect
+                                            label="Kategori Menu *"
+                                            data={availableCategories}
+                                            selected={selectedCategory}
+                                            setSelected={setSelectedCategoryHandler}
+                                            placeholder={
+                                                data.tenant_outlet_id
+                                                    ? "Pilih kategori milik tenant"
+                                                    : "Pilih kategori menu"
+                                            }
+                                            errors={errors.category_id}
+                                            searchable={true}
+                                            displayKey="name"
+                                        />
+                                        <p className="mt-1 text-[11px] text-slate-500">
+                                            {availableCategories.length > 0
+                                                ? `${availableCategories.length} kategori tersedia.`
+                                                : "Belum ada kategori untuk konteks ini. Silakan buat kategori terlebih dahulu."}
+                                        </p>
+                                    </div>
+
+                                    {/* Deskripsi */}
+                                    <div>
+                                        <Textarea
+                                            label="Deskripsi Menu (Opsional)"
+                                            placeholder="Jelaskan bahan, rasa, atau catatan khusus tentang menu ini..."
+                                            errors={errors.description}
+                                            onChange={(e) => setData("description", e.target.value)}
+                                            value={data.description}
+                                            rows={2}
+                                        />
+                                    </div>
+
+                                    {/* Pengaturan Lanjutan: Barcode & SKU (Collapsible Ringkas) */}
+                                    <div className="pt-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowAdvancedCodes((v) => !v)}
+                                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-primary-600 transition"
+                                        >
+                                            <IconBarcode size={16} />
+                                            <span>
+                                                {showAdvancedCodes
+                                                    ? "Sembunyikan Pengaturan Barcode & SKU"
+                                                    : "+ Atur Barcode & SKU Manual (Opsional)"}
+                                            </span>
+                                        </button>
+
+                                        {showAdvancedCodes && (
+                                            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-800/30">
+                                                {isTenantWorkspace ? (
+                                                    <div className="sm:col-span-2 text-xs text-slate-500">
+                                                        Barcode & SKU otomatis digenerate dari kode tenant & nama produk:{" "}
+                                                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                                                            {autoProductCodePreview}
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <Input
+                                                            type="text"
+                                                            label="Barcode"
+                                                            value={data.barcode}
+                                                            onChange={(e) => setData("barcode", e.target.value)}
+                                                            errors={errors.barcode}
+                                                            placeholder="Kosongkan untuk otomatis"
+                                                        />
+                                                        <Input
+                                                            type="text"
+                                                            label="SKU"
+                                                            value={data.sku}
+                                                            onChange={(e) => setData("sku", e.target.value)}
+                                                            errors={errors.sku}
+                                                            placeholder="Kosongkan untuk otomatis"
+                                                        />
+                                                        <p className="sm:col-span-2 text-[11px] text-slate-500">
+                                                            Preview kode otomatis:{" "}
+                                                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                                                {autoSkuPreview}
+                                                            </span>
+                                                        </p>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
+                            )}
 
-                        {/* Pricing & Stock */}
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
-                                <IconCurrencyDollar size={18} />
-                                Harga 3 Level & Stok
-                            </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                <Input
-                                    type="number"
-                                    label="HPP Tenant"
-                                    value={data.tenant_hpp_price}
-                                    onChange={(e) =>
-                                        setData("tenant_hpp_price", e.target.value)
-                                    }
-                                    errors={errors.tenant_hpp_price}
-                                    placeholder="0"
-                                />
-                                <Input
-                                    type="number"
-                                    label="Harga Beli dari Tenant"
-                                    value={data.buy_price}
-                                    onChange={(e) =>
-                                        setData("buy_price", e.target.value)
-                                    }
-                                    errors={errors.buy_price}
-                                    placeholder="0"
-                                />
-                                {isTenantWorkspace ? (
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
-                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                            Harga Jual Outlet
-                                        </p>
-                                        <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
-                                            Rp {effectiveOutletSellPrice.toLocaleString("id-ID")}
-                                        </p>
-                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                            Otomatis dihitung dari harga beli tenant + markup default Rp {Number(tenantDefaultMarkup || 0).toLocaleString("id-ID")}.
+                            {/* STEP 2: HARGA & STOK */}
+                            {currentStep === 2 && (
+                                <div className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                                    <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
+                                        <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                            <IconCurrencyDollar size={20} className="text-primary-600" />
+                                            Langkah 2: Harga 3 Level & Stok Awal
+                                        </h3>
+                                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                            Kelola harga pokok modal (HPP), harga beli tenant, harga jual di kasir, dan persediaan stok.
                                         </p>
                                     </div>
-                                ) : (
-                                    <Input
-                                        type="number"
-                                        label="Harga Jual Outlet"
-                                        value={data.sell_price}
-                                        onChange={(e) =>
-                                            setData("sell_price", e.target.value)
-                                        }
-                                        errors={errors.sell_price}
-                                        placeholder="0"
-                                    />
-                                )}
-                                <Input
-                                    type="number"
-                                    label="Stok"
-                                    value={data.stock}
-                                    onChange={(e) =>
-                                        setData("stock", e.target.value)
-                                    }
-                                    errors={errors.stock}
-                                    placeholder="0"
-                                />
-                            </div>
 
-                            {(Number(data.tenant_hpp_price || 0) > 0 ||
-                                Number(data.buy_price || 0) > 0 ||
-                                Number(data.sell_price || 0) > 0) && (
-                                <div className="mt-4 grid gap-4 rounded-xl border border-success-200 bg-success-50 p-4 dark:border-success-900 dark:bg-success-950/30 md:grid-cols-2">
-                                    <div>
-                                        <p className="text-sm font-medium text-success-700 dark:text-success-400">
-                                            Margin Tenant per Item
-                                        </p>
-                                        <p className="mt-1 text-2xl font-bold text-success-600 dark:text-success-500">
-                                            + Rp{" "}
-                                            {Math.max(
-                                                0,
-                                                Number(data.buy_price || 0) -
-                                                    Number(
-                                                        data.tenant_hpp_price ||
-                                                            data.buy_price ||
-                                                            0
-                                                    )
-                                            ).toLocaleString("id-ID")}
-                                        </p>
+                                    {/* Grid Input Harga */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                        <Input
+                                            type="number"
+                                            label="HPP Tenant (Biaya Modal) *"
+                                            value={data.tenant_hpp_price}
+                                            onChange={(e) => setData("tenant_hpp_price", e.target.value)}
+                                            errors={errors.tenant_hpp_price}
+                                            placeholder="0"
+                                        />
+
+                                        <Input
+                                            type="number"
+                                            label="Harga Beli dari Tenant *"
+                                            value={data.buy_price}
+                                            onChange={(e) => setData("buy_price", e.target.value)}
+                                            errors={errors.buy_price}
+                                            placeholder="0"
+                                        />
+
+                                        {isTenantWorkspace ? (
+                                            <div className="rounded-xl border border-primary-200 bg-primary-50/60 px-4 py-2.5 dark:border-primary-900/50 dark:bg-primary-950/20">
+                                                <p className="text-[11px] font-bold uppercase tracking-wider text-primary-700 dark:text-primary-300">
+                                                    Harga Jual Kasir (Auto)
+                                                </p>
+                                                <p className="mt-1 text-lg font-bold text-slate-900 dark:text-slate-100">
+                                                    {formatCurrency(effectiveOutletSellPrice)}
+                                                </p>
+                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                    Harga Beli + Markup Rp {Number(tenantDefaultMarkup || 0).toLocaleString("id-ID")}
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <Input
+                                                type="number"
+                                                label="Harga Jual Kasir / POS *"
+                                                value={data.sell_price}
+                                                onChange={(e) => setData("sell_price", e.target.value)}
+                                                errors={errors.sell_price}
+                                                placeholder="0"
+                                            />
+                                        )}
                                     </div>
-                                    <div>
-                                        <p className="text-sm font-medium text-success-700 dark:text-success-400">
-                                            Harga Jual Kasir per Item
-                                        </p>
-                                        <p className="mt-1 text-2xl font-bold text-success-600 dark:text-success-500">
-                                            + Rp{" "}
-                                            {Math.max(
-                                                0,
-                                                Number(
-                                                    isTenantWorkspace
-                                                        ? effectiveOutletSellPrice
-                                                        : data.sell_price || 0
-                                                ) -
-                                                    Number(data.buy_price || 0)
-                                            ).toLocaleString("id-ID")}
+
+                                    {/* Visual Margin Calculator Card */}
+                                    {(Number(data.tenant_hpp_price || 0) > 0 ||
+                                        Number(data.buy_price || 0) > 0 ||
+                                        Number(data.sell_price || effectiveOutletSellPrice || 0) > 0) && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm">
+                                                    <IconCurrencyDollar size={20} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                                                        Margin Tenant per Porsi
+                                                    </p>
+                                                    <p className="text-lg font-extrabold text-emerald-700 dark:text-emerald-400">
+                                                        +{" "}
+                                                        {formatCurrency(
+                                                            Math.max(
+                                                                0,
+                                                                Number(data.buy_price || 0) -
+                                                                    Number(
+                                                                        data.tenant_hpp_price ||
+                                                                            data.buy_price ||
+                                                                            0
+                                                                    )
+                                                            )
+                                                        )}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-600 text-white shadow-sm">
+                                                    <IconBuildingStore size={20} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-semibold text-teal-800 dark:text-teal-300">
+                                                        Margin Kasir Outlet per Porsi
+                                                    </p>
+                                                    <p className="text-lg font-extrabold text-teal-700 dark:text-teal-400">
+                                                        +{" "}
+                                                        {formatCurrency(
+                                                            Math.max(
+                                                                0,
+                                                                Number(
+                                                                    isTenantWorkspace
+                                                                        ? effectiveOutletSellPrice
+                                                                        : data.sell_price || 0
+                                                                ) - Number(data.buy_price || 0)
+                                                            )
+                                                        )}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Input Stok */}
+                                    <div className="pt-2">
+                                        <Input
+                                            type="number"
+                                            label="Stok Awal Produk *"
+                                            value={data.stock}
+                                            onChange={(e) => setData("stock", e.target.value)}
+                                            errors={errors.stock}
+                                            placeholder="Contoh: 50"
+                                        />
+                                        <p className="mt-1 text-[11px] text-slate-500">
+                                            Jumlah persediaan yang siap dijual. Pengurangan stok akan dicatat otomatis setiap transaksi berhasil.
                                         </p>
                                     </div>
                                 </div>
                             )}
-                        </div>
 
-                        {data.supports_modifiers && (
-                            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
-                                <div className="mb-4 flex items-center justify-between gap-3">
-                                    <div>
-                                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary-600 dark:text-primary-300">
-                                            Langkah 3
-                                        </p>
-                                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                                            Preset Topping / Tambahan
+                            {/* STEP 3: DAPUR & PENYAJIAN */}
+                            {currentStep === 3 && (
+                                <div className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                                    <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
+                                        <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                            <IconToolsKitchen2 size={20} className="text-primary-600" />
+                                            Langkah 3: Dapur & Aliran Tiket Pesanan
                                         </h3>
-                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                            Opsi ini muncul di POS dan self order. Tandai `Wajib` pada opsi yang harus dipilih.
+                                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                            Informasi stasiun dapur tujuan untuk cetak struk masak dan Kitchen Display System (KDS).
                                         </p>
-                                        <div className="mt-3">
-                                            <Link
-                                                href={route("settings.topping-markup")}
-                                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-50 dark:border-slate-700 dark:text-primary-300 dark:hover:bg-slate-800"
-                                            >
-                                                Atur Markup Topping
-                                            </Link>
+                                    </div>
+
+                                    {/* Stasiun Dapur Auto-mapping Card */}
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5 dark:border-slate-800 dark:bg-slate-800/40">
+                                        <div className="flex items-start gap-3.5">
+                                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500 text-white shadow-md shadow-amber-500/20">
+                                                <IconToolsKitchen2 size={22} />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                                                    Stasiun Dapur Tujuan (Kitchen Station)
+                                                </h4>
+                                                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                                                    {autoKitchenStation
+                                                        ? `Pesanan menu ini otomatis diarahkan ke stasiun: "${autoKitchenStation.station_name}"${
+                                                              autoKitchenStation.station_code
+                                                                  ? ` [${autoKitchenStation.station_code}]`
+                                                                  : ""
+                                                          }.`
+                                                        : "Belum ada stasiun dapur aktif untuk outlet ini. Pesanan akan masuk ke tiket umum kasir."}
+                                                </p>
+                                                <div className="mt-3 flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                                                    <span className="flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                                                    <span>Terhubung otomatis dengan sistem Kitchen Dispatch POS</span>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowModifierSection((value) => !value)}
-                                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                                        >
-                                            {showModifierSection ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
-                                            {showModifierSection ? "Sembunyikan" : "Lihat detail"}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={addModifierOption}
-                                            className="inline-flex items-center gap-2 rounded-xl bg-primary-500 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-600"
-                                        >
-                                            <IconPlus size={14} />
-                                            Tambah
-                                        </button>
+
+                                    {/* Ringkasan Konteks Outlet */}
+                                    <div className="rounded-xl border border-slate-200 p-4 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-medium text-slate-500">Konteks Outlet:</span>
+                                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                                                {isTenantWorkspace
+                                                    ? "Tenant Outlet Aktif"
+                                                    : selectedTenantOutlet
+                                                    ? `${selectedTenantOutlet.name} (${selectedTenantOutlet.code})`
+                                                    : "Global / Multi-Tenant"}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-medium text-slate-500">Kategori Menu:</span>
+                                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                                                {selectedCategory?.name || "Belum dipilih"}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
+                            )}
 
-                                {showModifierSection ? (
-                                <div className="space-y-3">
-                                    {data.modifier_options.length === 0 && (
-                                        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                                            Belum ada preset topping.
-                                        </div>
-                                    )}
-                                    {modifierGroups.map((group, groupIndex) => (
-                                        <div
-                                            key={`modifier-group-${group.groupKey}-${groupIndex}`}
-                                            className="space-y-4 rounded-2xl border border-primary-200 bg-primary-50/60 p-4 dark:border-primary-900/50 dark:bg-primary-950/20"
+                            {/* STEP 4: TOPPING & VARIAN (ROMBAK TOTAL) */}
+                            {currentStep === 4 && (
+                                <div className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                                    <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
+                                        <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                            <IconSparkles size={20} className="text-primary-600" />
+                                            Langkah 4: Pengaturan Topping, Varian & Add-on
+                                        </h3>
+                                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                            Kelola kelompok varian dengan sangat mudah menggunakan builder visual modern di bawah ini.
+                                        </p>
+                                    </div>
+
+                                    <ModifierBuilder
+                                        supportsModifiers={data.supports_modifiers}
+                                        setSupportsModifiers={(val) => setData("supports_modifiers", val)}
+                                        requiresModifierSelection={data.requires_modifier_selection}
+                                        setRequiresModifierSelection={(val) =>
+                                            setData("requires_modifier_selection", val)
+                                        }
+                                        modifierOptions={data.modifier_options}
+                                        onChangeModifierOptions={(newOptions) =>
+                                            setData("modifier_options", newOptions)
+                                        }
+                                        toppingMarkupSettings={toppingMarkupSettings}
+                                        disabled={false}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Navigasi Stepper Bawah (Previous / Next / Submit) */}
+                            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+                                <div>
+                                    {currentStep > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setCurrentStep((curr) => Math.max(1, curr - 1))}
+                                            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 transition"
                                         >
-                                            <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-primary-200 bg-white px-3 py-3 dark:border-primary-900/40 dark:bg-slate-900">
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.24em] text-primary-600 dark:text-primary-300">
-                                                        Kategori
-                                                    </p>
-                                                    <div className="flex flex-wrap items-center gap-2">
-                                                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                                            {group.groupName}
-                                                        </p>
-                                                        <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[11px] font-semibold text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
-                                                            {group.options.length} opsi
-                                                        </span>
-                                                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                                                            {createModifierModeLabel(group.selection_mode)}
-                                                        </span>
-                                                        {group.options.some((option) => option.is_required) ? (
-                                                            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                                                                Wajib
-                                                            </span>
-                                                        ) : null}
-                                                    </div>
-                                                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                                        {createModifierRuleSummary({ is_required: group.options.some((option) => option.is_required) })}
-                                                    </p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                                        Rentang harga
-                                                    </p>
-                                                    <p className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                                        {group.options.length > 0
-                                                            ? `${formatCurrency(Math.min(...group.options.map((item) => resolveModifierMarkupPreview(item.price, toppingMarkupRules).effectivePrice)))} - ${formatCurrency(Math.max(...group.options.map((item) => resolveModifierMarkupPreview(item.price, toppingMarkupRules).effectivePrice)))}`
-                                                            : formatCurrency(0)}
-                                                    </p>
-                                                </div>
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => toggleModifierGroup(group.groupKey)}
-                                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                                                    >
-                                                        {collapsedModifierGroups[group.groupKey] ? <IconChevronDown size={14} /> : <IconChevronUp size={14} />}
-                                                        {collapsedModifierGroups[group.groupKey] ? "Buka" : "Tutup"}
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => duplicateModifierGroup(group)}
-                                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                                                    >
-                                                        Duplikat
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => removeModifierGroup(group.groupName)}
-                                                        className="inline-flex items-center gap-2 rounded-xl border border-danger-200 px-3 py-2 text-xs font-semibold text-danger-600 hover:bg-danger-50 dark:border-danger-900/50 dark:text-danger-300 dark:hover:bg-danger-950/20"
-                                                    >
-                                                        Hapus
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => addModifierOptionToGroup(group.groupName)}
-                                                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-50 dark:border-slate-700 dark:text-primary-300 dark:hover:bg-slate-800"
-                                                    >
-                                                        <IconPlus size={14} />
-                                                        Tambah Opsi
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            {!collapsedModifierGroups[group.groupKey] && (
-                                            <>
-                                            <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
-                                                <div className="lg:col-span-3">
-                                                    <Input
-                                                        type="text"
-                                                        label="Kategori"
-                                                        value={group.groupName}
-                                                        onChange={(e) =>
-                                                            updateModifierGroupMeta(group.groupName, "group_name", e.target.value)
-                                                        }
-                                                        placeholder="Contoh: Kuah"
-                                                    />
-                                                </div>
-                                                <div className="lg:col-span-2">
-                                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                                        Mode
-                                                    </label>
-                                                    <select
-                                                        value={group.selection_mode || "optional"}
-                                                        onChange={(e) =>
-                                                            updateModifierGroupMeta(group.groupName, "selection_mode", e.target.value)
-                                                        }
-                                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                                    >
-                                                        <option value="single">1 opsi</option>
-                                                        <option value="multiple">Bisa &gt;1</option>
-                                                        <option value="optional">Opsional</option>
-                                                    </select>
-                                                </div>
-                                                <div className="lg:col-span-3">
-                                                    <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                                                        Berlaku saat
-                                                    </label>
-                                                    <select
-                                                        value={group.order_type_scope ?? ""}
-                                                        onChange={(e) =>
-                                                            updateModifierGroupMeta(group.groupName, "order_type_scope", e.target.value)
-                                                        }
-                                                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                                    >
-                                                        <option value="">Semua (dine-in & take-away)</option>
-                                                        <option value="take_away">Hanya take-away</option>
-                                                        <option value="dine_in">Hanya dine-in</option>
-                                                    </select>
-                                                </div>
-                                                <div className="lg:col-span-4 rounded-xl border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                                                    Kewajiban diatur di sini: Mode &amp; Min menentukan berapa opsi yang harus dipilih user. Grup "Hanya take-away" hanya muncul & wajib saat order take-away.
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-3 lg:grid-cols-12">
-                                                <div className="lg:col-span-2">
-                                                    <Input
-                                                        type="number"
-                                                        label="Min"
-                                                        value={group.min_select}
-                                                        onChange={(e) =>
-                                                            updateModifierGroupMeta(group.groupName, "min_select", e.target.value)
-                                                        }
-                                                        placeholder="0"
-                                                    />
-                                                </div>
-                                                <div className="lg:col-span-2">
-                                                    <Input
-                                                        type="number"
-                                                        label="Max"
-                                                        value={group.max_select}
-                                                        onChange={(e) =>
-                                                            updateModifierGroupMeta(group.groupName, "max_select", e.target.value)
-                                                        }
-                                                        disabled={group.selection_mode === "single"}
-                                                        placeholder="∞"
-                                                    />
-                                                </div>
-                                                <div className="col-span-2 lg:col-span-8 rounded-xl border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                                                    {toppingMarkupRules.length > 0
-                                                        ? `${toppingMarkupRules.length} rule aktif dari menu markup topping.`
-                                                        : "Belum ada rule markup aktif. Harga efektif = harga dasar."}
-                                                </div>
-                                            </div>
-                                            <div className="space-y-3">
-                                                {group.options.map((option, optionIndex) => (
-                                                    <div
-                                                        key={`modifier-option-${option.originalIndex}`}
-                                                        className="grid grid-cols-1 gap-3 rounded-xl border border-amber-200 bg-amber-50/40 p-3 dark:border-amber-900/40 dark:bg-amber-950/10 lg:grid-cols-12"
-                                                    >
-                                                        <div className="lg:col-span-12">
-                                                            <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-amber-700 dark:text-amber-300">
-                                                                Opsi
-                                                            </p>
-                                                        </div>
-                                                        <div className="lg:col-span-5">
-                                                            <Input
-                                                                type="text"
-                                                                label={optionIndex === 0 ? "Nama Opsi" : ""}
-                                                                value={option.name}
-                                                                onChange={(e) =>
-                                                                    updateModifierOption(option.originalIndex, "name", e.target.value)
-                                                                }
-                                                                placeholder="Contoh: Extra cheese"
-                                                            />
-                                                        </div>
-                                                        <div className="lg:col-span-3">
-                                                            {(() => {
-                                                                const preview = resolveModifierMarkupPreview(option.price, toppingMarkupRules);
+                                            <IconArrowLeft size={16} />
+                                            Sebelumnya
+                                        </button>
+                                    )}
+                                </div>
 
-                                                                return (
-                                                                    <>
-                                                            <Input
-                                                                type="number"
-                                                                label={optionIndex === 0 ? "Harga Dasar" : ""}
-                                                                value={option.price}
-                                                                onChange={(e) =>
-                                                                    updateModifierOption(option.originalIndex, "price", e.target.value)
-                                                                }
-                                                                placeholder="0"
-                                                            />
-                                                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                                                                Markup {formatCurrency(preview.markupPrice)} • Efektif {formatCurrency(preview.effectivePrice)}
-                                                            </p>
-                                                                    </>
-                                                                );
-                                                            })()}
-                                                        </div>
-                                                        <div className="lg:col-span-3">
-                                                            <label className="flex h-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={!!option.is_required}
-                                                                    onChange={(e) =>
-                                                                        updateModifierOption(option.originalIndex, "is_required", e.target.checked)
-                                                                    }
-                                                                    className="h-5 w-5 rounded border-slate-300 text-amber-500 focus:ring-amber-500"
-                                                                />
-                                                                <span className="text-xs font-semibold">
-                                                                    Wajib
-                                                                </span>
-                                                            </label>
-                                                        </div>
-                                                        <div className="lg:col-span-1 flex items-end justify-end">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => removeModifierOption(option.originalIndex)}
-                                                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:border-danger-200 hover:bg-danger-50 hover:text-danger-500 dark:border-slate-700 dark:text-slate-300 dark:hover:border-danger-900 dark:hover:bg-danger-950/30"
-                                                            >
-                                                                <IconTrash size={16} />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                <div className="flex items-center gap-2.5">
+                                    {currentStep < 4 ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setCurrentStep((curr) => Math.min(4, curr + 1))}
+                                            className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white transition"
+                                        >
+                                            <span>Lanjut ke Langkah {currentStep + 1}</span>
+                                            <IconArrowRight size={16} />
+                                        </button>
+                                    ) : (
+                                        <Button
+                                            type="submit"
+                                            disabled={processing}
+                                            className="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-6 py-2.5 text-xs font-bold text-white shadow-md shadow-primary-600/25 transition hover:bg-primary-700 active:scale-[0.98]"
+                                        >
+                                            <IconDeviceFloppy size={18} />
+                                            <span>{processing ? "Menyimpan..." : "Selesai & Simpan Produk"}</span>
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Kolom Kanan: Live Product Preview Card & Summary (4 Kolom Sticky) */}
+                        <div className="lg:col-span-4 sticky top-6 space-y-6">
+                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                                <div className="flex items-center justify-between gap-2 mb-3">
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                        Live Preview Menu
+                                    </h4>
+                                    <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-bold text-primary-700 dark:bg-primary-950/60 dark:text-primary-300">
+                                        Tampilan POS
+                                    </span>
+                                </div>
+
+                                {/* Preview Card Layaknya di POS */}
+                                <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-md dark:border-slate-800 dark:bg-slate-800/60">
+                                    <div className="relative aspect-[4/3] w-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+                                        {imagePreview ? (
+                                            <img
+                                                src={imagePreview}
+                                                alt="Preview Menu"
+                                                className="h-full w-full object-cover"
+                                            />
+                                        ) : (
+                                            <div className="text-center p-4 text-slate-400">
+                                                <IconPhoto size={40} className="mx-auto mb-1" />
+                                                <span className="text-[11px] font-medium">Foto Menu</span>
                                             </div>
-                                            </>
+                                        )}
+
+                                        {/* Badge Kategori Mengambang */}
+                                        <div className="absolute left-3 top-3">
+                                            <span className="rounded-lg bg-black/60 backdrop-blur-md px-2.5 py-1 text-[11px] font-bold text-white">
+                                                {selectedCategory?.name || "Kategori"}
+                                            </span>
+                                        </div>
+
+                                        {/* Badge Stok */}
+                                        <div className="absolute right-3 top-3">
+                                            <span
+                                                className={`rounded-lg px-2 py-1 text-[10px] font-bold backdrop-blur-md ${
+                                                    Number(data.stock || 0) > 0
+                                                        ? "bg-emerald-600/90 text-white"
+                                                        : "bg-red-600/90 text-white"
+                                                }`}
+                                            >
+                                                Stok: {data.stock !== "" ? data.stock : "0"}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 space-y-2.5">
+                                        <div>
+                                            <h3 className="text-base font-bold text-slate-900 dark:text-white line-clamp-1">
+                                                {data.title || "Nama Menu Anda"}
+                                            </h3>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5">
+                                                {data.description || "Deskripsi singkat tentang menu lezat ini..."}
+                                            </p>
+                                        </div>
+
+                                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                                            <div>
+                                                <p className="text-[10px] uppercase font-bold text-slate-400">
+                                                    Harga Jual
+                                                </p>
+                                                <p className="text-lg font-extrabold text-primary-600 dark:text-primary-400">
+                                                    {formatCurrency(
+                                                        isTenantWorkspace
+                                                            ? effectiveOutletSellPrice
+                                                            : data.sell_price || 0
+                                                    )}
+                                                </p>
+                                            </div>
+
+                                            {data.supports_modifiers && (
+                                                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                                                    + {data.modifier_options?.length || 0} Topping
+                                                </span>
                                             )}
                                         </div>
-                                    ))}
-                                    <button
-                                        type="button"
-                                        onClick={addModifierGroup}
-                                        className="inline-flex items-center gap-2 rounded-xl border border-dashed border-slate-300 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                                    >
-                                        <IconPlus size={16} />
-                                        Tambah Kategori Topping
-                                    </button>
-                                </div>
-                                ) : (
-                                    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                                        Preset topping berada tepat di bagian ini. Buka detail di bawah judul ini untuk menambah, mengubah, atau menandai opsi wajib.
                                     </div>
-                                )}
-                            </div>
-                        )}
+                                </div>
 
-                        {/* Submit */}
-                        <div className="flex justify-end gap-3">
-                            <Link
-                                href={route("products.index")}
-                                className="px-6 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
-                            >
-                                Batal
-                            </Link>
-                            <button
-                                type="submit"
-                                disabled={processing}
-                                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium transition-colors disabled:opacity-50"
-                            >
-                                <IconDeviceFloppy size={18} />
-                                {processing ? "Menyimpan..." : "Simpan Produk"}
-                            </button>
+                                {/* Ringkasan Cepat Form */}
+                                <div className="mt-4 space-y-2 text-xs">
+                                    <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                                        <span className="text-slate-500">Kategori:</span>
+                                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                            {selectedCategory?.name || "-"}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                                        <span className="text-slate-500">Harga Beli:</span>
+                                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                            {formatCurrency(data.buy_price || 0)}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                                        <span className="text-slate-500">Varian / Topping:</span>
+                                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                            {data.supports_modifiers
+                                                ? `${data.modifier_options?.length || 0} Opsi`
+                                                : "Tidak Aktif"}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Tombol Simpan di Sidebar */}
+                                <div className="mt-5 pt-3">
+                                    <Button
+                                        type="submit"
+                                        disabled={processing}
+                                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary-600 py-3 text-xs font-bold text-white shadow-md shadow-primary-600/25 transition hover:bg-primary-700 disabled:opacity-60"
+                                    >
+                                        <IconDeviceFloppy size={18} />
+                                        <span>{processing ? "Menyimpan..." : "Simpan Menu"}</span>
+                                    </Button>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </form>
-        </>
+                </form>
+            </div>
+        </DashboardLayout>
     );
 }
-
-Create.layout = (page) => <DashboardLayout children={page} />;

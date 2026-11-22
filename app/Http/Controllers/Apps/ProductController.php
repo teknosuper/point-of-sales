@@ -1282,7 +1282,7 @@ class ProductController extends Controller
                 ->all();
         }
 
-        $validated['tenant_outlet_id'] = $validated['tenant_outlet_id']
+        $validated['tenant_outlet_id'] = ! empty($validated['tenant_outlet_id'])
             ? (int) $validated['tenant_outlet_id']
             : null;
         $validated['category_id'] = $this->validateCategorySelection(
