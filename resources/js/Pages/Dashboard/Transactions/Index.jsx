@@ -5524,14 +5524,46 @@ export default function Index({
         [tenantOutlets]
     );
 
+    // Kategori dapur seperti pada order meja
+    const kitchenCategories = useMemo(() => {
+        if (!tenantOutlets || tenantOutlets.length === 0) {
+            return mainCategories.length > 0 ? mainCategories : categories;
+        }
+
+        const sourceProducts = shouldUseRemoteProductSearch
+            ? remoteProducts
+            : catalogProducts;
+
+        return tenantOutlets
+            .filter((tenant) =>
+                sourceProducts.some((product) => {
+                    const tenantId =
+                        product.tenant_outlet?.id ??
+                        product.tenant_outlet_id ??
+                        null;
+                    return Number(tenantId) === Number(tenant.id);
+                })
+            )
+            .map((tenant) => ({
+                id: tenant.id,
+                name: tenant.name,
+                parent_id: null,
+                sort_order: tenant.sort_order ?? 0,
+            }));
+    }, [
+        catalogProducts,
+        categories,
+        mainCategories,
+        remoteProducts,
+        shouldUseRemoteProductSearch,
+        tenantOutlets,
+    ]);
+
     // Filter products including out of stock
     const allProducts = useMemo(() => {
         const base = shouldUseRemoteProductSearch
             ? remoteProducts
             : catalogProducts.filter((product) => {
-                  const matchesCategory =
-                      normalizedSelectedCategory === null ||
-                      Number(product.category_id) === normalizedSelectedCategory;
                   const matchesSearch =
                       !normalizedSearchQuery ||
                       product.title
@@ -5540,28 +5572,54 @@ export default function Index({
                       product.barcode
                           ?.toLowerCase()
                           .includes(normalizedSearchQuery.toLowerCase());
-                  return matchesCategory && matchesSearch;
+                  return matchesSearch;
               });
 
-        // Inject tenant_store_hours so ProductGrid can show hours in "Belum Buka" label
+        // Inject tenant_store_hours and map category to tenant/dapur like table order
         return base.map((product) => {
-            const tenantId = product.tenant_outlet?.id ?? product.tenant_outlet_id ?? null;
-            if (!tenantId) return product;
-            const hours = tenantHoursMap[Number(tenantId)] ?? null;
-            const countdown = tenantOpenCountdownMap[Number(tenantId)] ?? null;
+            const tenantOutletId =
+                product.tenant_outlet?.id ??
+                product.tenant_outlet_id ??
+                null;
+            const tenant = tenantOutlets.find(
+                (item) => Number(item.id) === Number(tenantOutletId)
+            );
+            const hours = tenantOutletId
+                ? (tenantHoursMap[Number(tenantOutletId)] ?? null)
+                : null;
+            const countdown = tenantOutletId
+                ? (tenantOpenCountdownMap[Number(tenantOutletId)] ?? null)
+                : null;
+
             return {
                 ...product,
+                ...(tenantOutlets.length > 0
+                    ? {
+                          category: tenant
+                              ? {
+                                    id: tenant.id,
+                                    name: tenant.name,
+                                    parent_id: null,
+                                }
+                              : product.category ?? null,
+                          category_id: tenant?.id ?? product.category_id ?? null,
+                      }
+                    : {}),
                 ...(hours ? { tenant_store_hours: hours } : {}),
                 ...(countdown ? { tenant_open_countdown: countdown } : {}),
+                ...(tenant?.closed_reason
+                    ? { store_closed_reason: tenant.closed_reason }
+                    : {}),
             };
         });
     }, [
-        normalizedSearchQuery,
-        normalizedSelectedCategory,
         catalogProducts,
+        normalizedSearchQuery,
         remoteProducts,
         shouldUseRemoteProductSearch,
         tenantHoursMap,
+        tenantOpenCountdownMap,
+        tenantOutlets,
     ]);
 
     // Permanently closed gate — outlet.is_active = false
@@ -6242,37 +6300,41 @@ export default function Index({
                 >
                             <ProductGrid
                                 products={allProducts}
-                                mainCategories={mainCategories}
-                                categories={categories}
-                                selectedCategory={selectedCategory}
-                            onCategoryChange={(categoryId) =>
-                                setSelectedCategory(
-                                    categoryId === null ? null : Number(categoryId)
-                                )
-                            }
-                            searchQuery={searchQuery}
-                            onSearchChange={setSearchQuery}
-                            isSearching={isSearching}
-                            onAddToCart={handleAddToCart}
-                            addingProductId={addingProductId}
-                            searchInputRef={searchInputRef}
-                            onBarcodeDetected={handleBarcodeScan}
-                            hasMoreProducts={
-                                !shouldUseRemoteProductSearch &&
-                                Boolean(productCatalogMeta?.has_more)
-                            }
-                            onLoadMoreProducts={loadMoreProducts}
-                            isLoadingMoreProducts={isLoadingMoreProducts}
-                            initialViewMode="grid"
-                            persistViewMode={false}
-                            compactHeaderLayout
-                            showFilterSummary={false}
-                            showViewModeToggle={false}
-                            simpleCards
-                            initialFilterExpanded={false}
-                            storageNamespace="pos:simple-product-grid"
-                            gridLayoutClass="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6"
-                        />
+                                mainCategories={kitchenCategories}
+                                categories={kitchenCategories}
+                                searchQuery={searchQuery}
+                                onSearchChange={setSearchQuery}
+                                isSearching={isSearching}
+                                onAddToCart={handleAddToCart}
+                                addingProductId={addingProductId}
+                                searchInputRef={searchInputRef}
+                                onBarcodeDetected={handleBarcodeScan}
+                                hasMoreProducts={
+                                    !shouldUseRemoteProductSearch &&
+                                    Boolean(productCatalogMeta?.has_more)
+                                }
+                                onLoadMoreProducts={loadMoreProducts}
+                                isLoadingMoreProducts={isLoadingMoreProducts}
+                                initialViewMode="grid"
+                                persistViewMode={false}
+                                compactHeaderLayout
+                                showFilterSummary={false}
+                                showViewModeToggle={false}
+                                simpleCards
+                                initialFilterExpanded={false}
+                                storageNamespace="pos:simple-product-grid"
+                                gridLayoutClass="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6"
+                                mainCategorySectionLabel={
+                                    tenantOutlets.length > 0
+                                        ? "Dapur"
+                                        : "Kategori Utama"
+                                }
+                                allMainCategoriesLabel={
+                                    tenantOutlets.length > 0
+                                        ? "Semua Dapur"
+                                        : "Semua Kategori"
+                                }
+                            />
                     </div>
 
                     {/* Cart Tab */}
